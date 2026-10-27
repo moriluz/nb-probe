@@ -11,7 +11,7 @@
   },
   "type": "module",
   "bin": {
-    "nb-probe": "./dist/cli.js"
+    "nb-probe": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -33,7 +33,7 @@
     "scanner"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
     "test": "tsc -p tsconfig.test.json --noEmit && tsx --test test/unit.test.ts test/scan.test.ts test/cli.test.ts",
     "prepublishOnly": "npm run build && npm test",
     "nb-probe": "tsx src/cli.ts",
