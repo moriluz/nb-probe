@@ -86,5 +86,5 @@ export function idQuery(canary: Canary): string {
 }
 
 export function listTables(names: string[]): string {
-  return [...names].sort().join(", ");
+  return [...new Set(names)].sort().join(", ");
 }

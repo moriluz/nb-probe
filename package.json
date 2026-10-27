@@ -3,7 +3,12 @@
   "version": "0.1.0",
   "description": "Ownership-gated security probe for apps you run. Supabase first.",
   "license": "MIT",
-  "author": "Neural Breach",
+  "author": "Neural Breach <hello@neural-breach.com>",
+  "homepage": "https://neural-breach.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moriluz/nb-probe.git"
+  },
   "type": "module",
   "bin": {
     "nb-probe": "./dist/cli.js"
@@ -16,17 +21,21 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=18"
   },
   "keywords": [
     "security",
     "supabase",
-    "cli",
-    "rls"
+    "firebase",
+    "vibe-coding",
+    "idor",
+    "bola",
+    "scanner"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "tsc -p tsconfig.test.json --noEmit && tsx --test test/unit.test.ts test/scan.test.ts test/cli.test.ts",
+    "prepublishOnly": "npm run build && npm test",
     "nb-probe": "tsx src/cli.ts",
     "fixture": "tsx test/fixture-cli.ts"
   },

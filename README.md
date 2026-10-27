@@ -1,99 +1,56 @@
 # nb-probe
 
-nb-probe is a small CLI that checks an app you control for the failures that show up when an agent scaffolds a Supabase project and moves on: RLS left off, a service role key compiled into the client, a webhook that trusts its body, a chat route with no session.
+User A calls `GET /rest/v1/orders?id=eq.<user B's id>` with a valid session. The token is real, the route exists, the status is 200. A scanner that does not know who owns the row has nothing to flag.
 
-It is free, MIT licensed, and it does not phone home. The package name and the bin are `nb-probe`. Publishing to npm is not wired up. After `npm run build`, `node dist/cli.js` works, and so does `npx tsx src/cli.ts`. A later `npm publish` is a separate step.
+nb-probe creates two users in an app you run, inserts one row for each, and makes that request. It also checks logged-out reads, self-promotion of `role` / `is_admin` / `plan` / `credits`, a signup that should be closed, secrets in the client bundle, an unsigned webhook, and an LLM route that answers with no session.
 
-Neural Breach (neural-breach.com) is the name on the work. This repository is the scanner, not a pitch.
+It is MIT licensed. It does not phone home. Supabase is the first target. A pass means this probe did not observe the failure. It does not mean the app is safe.
 
-## Install
+## Quickstart
 
-Node 20 or newer.
-
-```bash
-npm install
-npm test
-npm run build
-node dist/cli.js --help
-```
-
-During development:
+Node 18 or newer.
 
 ```bash
-npx tsx src/cli.ts token
-npx tsx src/cli.ts scan --help
+npx nb-probe token
 ```
 
-Keys on the command line are visible to other users on the same machine. The flags below all have environment equivalents: `NB_URL`, `NB_TOKEN`, `NB_SUPABASE_URL`, `NB_ANON_KEY`, `NB_SERVICE_ROLE`, `NB_TABLES`, `NB_USER_A`, `NB_USER_B`, `NB_SIGNUP_PATH`, `NB_CLOSED_SIGNUP=1`, `NB_WEBHOOK_PATH`, `NB_LLM_PATH`, `NB_ONLY`, `NB_TIMEOUT`.
-
-## Prove you own the origin
-
-The scan does not start until the origin serves a token you generated.
+Put that line, alone, at `https://YOUR_ORIGIN/.well-known/neural-breach`. Then:
 
 ```bash
-npx tsx src/cli.ts token
-```
-
-That prints one line. Put that line, alone, in a file served at:
-
-```text
-https://YOUR_ORIGIN/.well-known/neural-breach
-```
-
-Requirements:
-
-- `GET` returns HTTP 200 from that exact path. No redirect.
-- Body is the token as `text/plain`, with an optional trailing newline.
-- Or JSON: `{"token":"<the same value>"}`.
-- The route is not behind a login. The probe fetches it with no credentials.
-- The file lives on the app origin you pass as `--url`, not on the Supabase project URL.
-- The token is 8 to 200 characters: letters, digits, `.`, `_`, `~`, `-`. A UUID from the `token` command is the intended shape.
-
-On a Next.js or Vite app, save it as `public/.well-known/neural-breach` (no file extension).
-
-Then:
-
-```bash
-npx tsx src/cli.ts scan --url https://app.example --token 'THE_TOKEN'
-```
-
-The file is public to anyone who can request that URL. It is an opt-in, not a password. Remove it when you are done. If you cannot place the file, the tool will not scan the host. That is the whole authorization model.
-
-## Scan
-
-```bash
-npx tsx src/cli.ts scan \
+npx nb-probe scan \
   --url https://app.example \
   --token "$NB_TOKEN" \
   --supabase-url "$NB_SUPABASE_URL" \
-  --anon-key "$NB_ANON_KEY" \
-  --service-role "$NB_SERVICE_ROLE" \
-  --tables profiles,notes \
-  --closed-signup \
-  --signup-path /api/signup \
-  --webhook-path /api/webhooks/stripe \
-  --llm-path /api/chat
+  --anon-key "$NB_ANON_KEY"
 ```
 
-`--url` is the app origin, with no path. `--supabase-url` may be the same origin in local tests, or `https://<project>.supabase.co`. A trailing `/rest/v1` is stripped.
+From a checkout, after `npm install` and `npm run build`:
 
-What the Supabase checks actually do: create two users, insert a marked row for each in the tables you named (or, if you omit `--tables`, tables whose schema has `user_id`, `owner_id`, `created_by`, or `author_id`), then request that row as the anon key, as the other user, and with a patched `role` / `is_admin` / `plan` / `credits` column. It does not dump the table. When the run ends it deletes the rows. It deletes the users too if you passed `--service-role`.
+```bash
+node dist/cli.js scan --url https://app.example --token "$NB_TOKEN" \
+  --supabase-url "$NB_SUPABASE_URL" --anon-key "$NB_ANON_KEY"
+```
 
-That service role key is sent only to `/auth/v1/admin/*`. The client refuses to put it on the Data API. Passing it as `--anon-key` is a usage error: the checks would be meaningless. If public signup is disabled and you have neither a service role nor two user JWTs, the table checks error instead of reporting a pass.
-
-If you already have two sessions:
+Without a build:
 
 ```bash
 npx tsx src/cli.ts scan --url https://app.example --token "$NB_TOKEN" \
-  --supabase-url "$NB_SUPABASE_URL" --anon-key "$NB_ANON_KEY" \
-  --user-a "$USER_A_JWT" --user-b "$USER_B_JWT" --tables profiles
+  --supabase-url "$NB_SUPABASE_URL" --anon-key "$NB_ANON_KEY"
 ```
 
-`--json` prints a single JSON document on stdout (`schemaVersion` 1). Human output is the default. Every failure includes a `curl` that reproduces the request, and a short fix note.
+`--help` lists the flags. The same names exist as `NB_URL`, `NB_TOKEN`, `NB_SUPABASE_URL`, `NB_ANON_KEY`, `NB_SERVICE_ROLE`, `NB_TABLES`, `NB_USER_A`, `NB_USER_B`, `NB_SIGNUP_PATH`, `NB_CLOSED_SIGNUP=1`, `NB_WEBHOOK_PATH`, `NB_LLM_PATH`, `NB_ONLY`, and `NB_TIMEOUT`. Keys on the command line are visible to other users on the machine.
 
-Run this against staging. The probe inserts rows, updates a field on a row it created, posts one unsigned webhook event whose id is `evt_nb_probe_canary`, and posts `{"messages":[{"content":"nb-probe ping"}]}` to the chat route. A broken webhook handler might still act on that event.
+## Ownership token
 
-A pass means this probe did not observe that failure. It does not mean the app is safe.
+The scan does not start until `GET /.well-known/neural-breach` returns the token you passed.
+
+- HTTP 200 from that exact path. No redirect.
+- Body is the token as text, with an optional trailing newline, or JSON `{"token":"<the same value>"}`.
+- The route is not behind a login. The probe fetches it with no credentials.
+- The file is on the app origin (`--url`), not on the Supabase project URL.
+- The token is 8 to 200 characters: letters, digits, `.`, `_`, `~`, `-`. `nb-probe token` prints a UUID.
+
+On Next.js or Vite, save it as `public/.well-known/neural-breach` with no extension. The file is public to anyone who can request that URL. It is an opt-in, not a password. Remove it when you are done. If you cannot place the file, the tool will not scan the host.
 
 ## Checks
 
@@ -110,13 +67,80 @@ A pass means this probe did not observe that failure. It does not mean the app i
 
 Severity is a local label for the exit code. It is not a CVSS score and it is not a CVE.
 
-`--only logged-out-read,idor-read` runs a subset. Unknown ids are a usage error.
+`--service-role` is optional. It is sent only to `/auth/v1/admin` to create and delete probe users. Passing it as `--anon-key` is a usage error. If you already have two sessions, pass `--user-a` and `--user-b` and skip the service role. `--tables` limits the probe to named tables. Without it, tables whose schema has `user_id`, `owner_id`, `created_by`, or `author_id` are selected, up to 20. `--only` runs a subset of the ids above.
 
-Webhook defaults, if you do not pass `--webhook-path`: `/api/webhooks/stripe`, `/api/stripe/webhook`, `/api/webhook`. LLM defaults: `/api/chat`, `/api/llm`, `/api/ai`. A 404 on all of them is a skip, not a failure. The bundle check reads the entry HTML and same-origin `<script src>` files only. It does not fetch a CDN.
+Webhook defaults: `/api/webhooks/stripe`, `/api/stripe/webhook`, `/api/webhook`. LLM defaults: `/api/chat`, `/api/llm`, `/api/ai`. A 404 on all of them is a skip. `--closed-signup` is off unless you set it.
 
-`--closed-signup` is off unless you set it. The check calls GoTrue `/auth/v1/signup` and, if you passed `--signup-path`, that path, with no invite field. It does not try to bypass captchas or confirmation mail.
+The probe inserts rows, may patch a field on a row it created, posts one unsigned event id `evt_nb_probe_canary`, and posts `{"messages":[{"content":"nb-probe ping"}]}` to the chat route. Run it against staging. Cleanup deletes the probe rows before exit, and deletes the users when a service role was passed, so a curl copied from the report often returns `[]` afterward. `--no-cleanup` leaves them.
 
-The report redacts secrets to a short prefix and suffix. Anon keys are ignored. They are public. The service-role curl prints a matching token when you run it. The report text does not contain that token.
+## Failing output
+
+This is a run against the vulnerable fixture (`npm run fixture`), with keys and row ids shortened. Exit code 1.
+
+```text
+nb-probe 0.1.0
+target: http://127.0.0.1:40177
+ownership: verified
+supabase: http://127.0.0.1:40177
+
+FAIL   high      logged-out-read
+       The anon key read probe rows in notes, profiles.
+       fix: Turn on RLS for the table. Add a select policy for authenticated with auth.uid() = user_id (or your owner column). Do not add a select policy for anon.
+
+curl -sS 'http://127.0.0.1:40177/rest/v1/notes?id=eq.<row>&select=*' -H 'apikey: <anon>' -H 'authorization: Bearer <anon>' -H 'accept: application/json'
+
+FAIL   high      idor-read
+       User A read User B's probe rows in notes, profiles.
+       fix: Add a select policy so a user can read only their own rows: auth.uid() = user_id. Drop any policy whose expression is true.
+
+curl -sS 'http://127.0.0.1:40177/rest/v1/notes?id=eq.<row>&select=*' -H 'apikey: <anon>' -H 'authorization: Bearer <user-a>' -H 'accept: application/json'
+
+FAIL   critical  idor-write
+       User A wrote User B's probe rows in notes, profiles.
+       fix: Add update and delete policies with both USING and WITH CHECK set to auth.uid() = user_id. USING alone can still allow an owner change on some setups, so set WITH CHECK as well.
+
+curl -sS -X PATCH 'http://127.0.0.1:40177/rest/v1/notes?id=eq.<row>' -H 'apikey: <anon>' -H 'authorization: Bearer <user-a>' -H 'content-type: application/json' --data-raw '{"body":"nb-probe-tamper-<id>"}'
+
+FAIL   critical  self-promotion
+       Probe user changed role, is_admin, plan, credits on their own row in profiles.
+       fix: Revoke UPDATE on role, is_admin, plan, and credits from authenticated and anon. RLS that only checks auth.uid() = user_id still lets a user promote their own row. Use a column grant, a security definer function, or a before-update trigger that rejects changes to those columns.
+
+curl -sS -X PATCH 'http://127.0.0.1:40177/rest/v1/profiles?id=eq.<row>' -H 'apikey: <anon>' -H 'authorization: Bearer <user-a>' -H 'content-type: application/json' --data-raw '{"role":"admin"}'
+
+FAIL   medium    closed-signup
+       Signup created a user without an invite (GoTrue HTTP 200, app signup HTTP 200).
+       fix: Turn off public signups in the Supabase Auth settings, or reject them in a before-user-created hook. An invite check in the client, or only on your own signup route, leaves GoTrue open.
+
+curl -sS -X POST 'http://127.0.0.1:40177/auth/v1/signup' -H 'apikey: <anon>' -H 'content-type: application/json' --data-raw '{"email":"nb-probe-closed-<id>@example.com","password":"nb-probe-signup-check"}'
+
+FAIL   critical  bundle-secrets
+       Client bundle exposes a service_role JWT, an sb_secret key, a Stripe secret key, and a source map reference.
+       fix: Rotate the leaked key, then remove it from the client bundle. The anon key is public. A service role key, an sb_secret key, and a Stripe secret key are not. NEXT_PUBLIC_ and Vite env values are shipped to the browser.
+
+curl -sS 'http://127.0.0.1:40177/assets/app.js' | node -e '<decode JWTs; print those whose payload role is service_role>'
+
+FAIL   high      webhook-signature
+       Unsigned POST to /api/webhooks/stripe was accepted (HTTP 200).
+       fix: Verify Stripe-Signature against the raw body and the endpoint secret before parsing the event. Return 400 when the header is missing or invalid.
+
+curl -sS -X POST 'http://127.0.0.1:40177/api/webhooks/stripe' -H 'content-type: application/json' --data-raw '{"id":"evt_nb_probe_canary",...}'
+
+FAIL   high      llm-endpoint
+       POST /api/chat answered without a session (HTTP 200). The response honored a client model or max_tokens override.
+       fix: Require a session before the handler calls a model. Choose model and max_tokens on the server, and ignore those fields if the client sends them.
+
+curl -sS -X POST 'http://127.0.0.1:40177/api/chat' -H 'content-type: application/json' --data-raw '{"messages":[{"role":"user","content":"nb-probe ping"}],"model":"nb-probe-override-model","max_tokens":999999}'
+
+0 passed, 8 failed, 0 skipped, 0 errors
+```
+
+The report text does not contain the service role key. The bundle curl, when you run it, prints a matching token.
+
+## Hardened fixture
+
+`npm run fixture -- hardened` is the same local app with owner-only rows, signup disabled, a clean bundle, a webhook that wants `Stripe-Signature`, and a chat route that wants a bearer token. The same scan exits 0: the anon key cannot read the probe rows, user A cannot read or write user B, self-promotion is refused, public signup is refused, the bundle check passes, the unsigned webhook is rejected, and `/api/chat` returns 401.
+
+`npm test` runs both fixtures. You do not need a Supabase project.
 
 ## Exit codes
 
@@ -127,66 +151,18 @@ The report redacts secrets to a short prefix and suffix. Anon keys are ignored. 
 | 2 | Ownership refused, or the command line was wrong. |
 | 3 | Something else threw. |
 
-## Output
+## JSON
 
-Human, trimmed:
+`--json` prints one document on stdout (`schemaVersion` 1). Human output is the default and stays on stdout otherwise. Each result has `status`, `severity`, `summary`, `fix`, `repro`, and `evidence`. `notes` lists leftovers: a row the delete did not remove, probe users left behind because no service role was passed, tables the schema did not contain.
 
-```text
-nb-probe 0.1.0
-target: http://127.0.0.1:40123
-ownership: verified
-supabase: http://127.0.0.1:40123
+## Only scan apps you own
 
-FAIL   high      logged-out-read
-       The anon key read probe rows in notes, profiles.
-       fix: Turn on RLS for the table. Add a select policy for authenticated with auth.uid() = user_id (or your owner column). Do not add a select policy for anon.
-
-curl -sS 'http://127.0.0.1:40123/rest/v1/notes?id=eq.ROW&select=*' -H 'apikey: ANON' -H 'authorization: Bearer ANON' -H 'accept: application/json'
-
-0 passed, 1 failed, 0 skipped, 0 errors
-```
-
-The curl is on its own line so you can copy it. Failing curls for the cross-user checks contain the probe user's access token. They do not contain the service role key. Cleanup deletes the probe row before the process exits, so running that curl later can return an empty list. `--no-cleanup` leaves the row in place.
-
-JSON has `results[].status`, `severity`, `summary`, `fix`, `repro`, and `evidence`. `notes` lists leftovers: a row the delete did not remove, probe users left behind because no service role was passed, tables the schema did not contain.
-
-## Try it locally
-
-`npm test` starts a vulnerable fixture and a hardened one on random loopback ports. You do not need a Supabase project.
-
-To poke at the vulnerable app yourself:
-
-```bash
-npm run fixture
-```
-
-That listens on `127.0.0.1:40123` and prints a scan command. Expect failures. `npm run fixture -- hardened` is the same app with RLS, signup disabled, a clean bundle, a webhook that wants a signature, and a chat route that wants a bearer token. Expect passes if you pass `--service-role` (the fixture prints one). Ctrl-C stops it. The fixture is not a real Supabase. It speaks enough of Auth and PostgREST for these checks.
-
-If a real project confirms email before it issues a session, public signup cannot provision probe users. Pass `--service-role`, or mint two sessions yourself and pass `--user-a` and `--user-b`. The service role is optional and is not required to run the checks once those sessions exist.
-
-## What this does not do
-
-- Scan a host that has not published the ownership file.
-- Guess passwords, brute force logins, or turn one bug into a second one.
-- Test tables it did not insert a probe row into. A public table with no owner column is left alone unless you name it in `--tables`.
-- Crawl third-party script hosts. A key that only exists in a CDN bundle will be missed.
-- Send the service role key as the data-plane credential.
-- Claim a CVE, score a product, or write you a pentest report.
-- Persist results anywhere but your stdout.
-- Phone home.
+This is a defensive check for an origin you control. It will not scan a host that has not published the ownership file. It does not guess passwords, crawl third-party script hosts, or send the service role key to the Data API. It does not claim a CVE. Do not point it at someone else's application.
 
 If a table is meant to be world-readable and it has a `user_id` column, auto mode will flag an anon read. Pass `--tables` and list only the private ones.
 
-## Layout
-
-```text
-src/cli.ts            flags, exit codes
-src/scan.ts           ownership gate, then the checks
-src/harness.ts        two users, probe rows, cleanup
-src/checks/           one file per check
-test/fixture.ts       the vulnerable and hardened apps
-```
-
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Security reports for the tool itself: [SECURITY.md](SECURITY.md).
+
+For a human review of an app you are shipping: https://neural-breach.com

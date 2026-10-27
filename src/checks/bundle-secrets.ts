@@ -85,8 +85,9 @@ function describe(hits: SecretHit[]): string {
   if (hits.some((hit) => hit.kind === "stripe_secret")) parts.push("a Stripe secret key");
   if (hits.some((hit) => hit.kind === "source_map")) parts.push("a source map reference");
   if (parts.length <= 1) return parts[0] ?? "a secret";
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
   const last = parts[parts.length - 1] ?? "a secret";
-  return `${parts.slice(0, -1).join(", ")} and ${last}`;
+  return `${parts.slice(0, -1).join(", ")}, and ${last}`;
 }
 
 function reproFor(hit: SecretHit): string {
