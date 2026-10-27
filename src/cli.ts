@@ -1,0 +1,168 @@
+#!/usr/bin/env node
+import crypto from "node:crypto";
+import { parseArgs } from "node:util";
+
+import { CHECK_LIST } from "./checks/index.js";
+import { exitCode, formatHuman, formatJson } from "./report.js";
+import { scan } from "./scan.js";
+import type { ScanConfig } from "./types.js";
+import { errorMessage, UsageError } from "./util.js";
+import { VERSION } from "./version.js";
+
+const HELP = `nb-probe ${VERSION}
+Ownership-gated checks for an app you control. Supabase first.
+
+Usage:
+  nb-probe token
+  nb-probe scan --url <origin> --token <token> [options]
+
+Options:
+  --url              App origin, for example https://app.example
+  --token            Value served at /.well-known/neural-breach
+  --supabase-url     Supabase project origin
+  --anon-key         Supabase anon or publishable key
+  --service-role     Optional. Used only to create and delete probe users
+  --tables           Comma-separated tables to probe
+  --user-a           Existing user JWT. Requires --user-b
+  --user-b           Existing user JWT. Requires --user-a
+  --signup-path      App path to call when --closed-signup is set
+  --closed-signup    Assert that public registration must fail
+  --webhook-path     Webhook path to probe
+  --llm-path         LLM path to probe
+  --only             Comma-separated check ids to run
+  --timeout          Per-request timeout in ms (default 10000)
+  --json             Print a JSON report on stdout
+  --no-cleanup       Leave probe rows and users in place
+  -h, --help
+  -v, --version
+
+Checks:
+${CHECK_LIST.map((check) => `  ${check.id.padEnd(20)} ${check.title}`).join("\n")}
+
+The ownership file is required. The scan does not start without it.
+A service role key is never sent to the Data API.
+
+Exit codes:
+  0  no failed check at medium or above
+  1  a medium, high, or critical failure, or a check error
+  2  ownership refused, or the command line was wrong
+  3  unexpected failure
+
+A low failure on its own (a public source map) exits 0.
+Keys in the command line are visible to other users on the machine. Prefer
+NB_URL, NB_TOKEN, NB_SUPABASE_URL, NB_ANON_KEY, and NB_SERVICE_ROLE.
+`;
+
+function env(name: string): string | undefined {
+  const value = process.env[name];
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : undefined;
+}
+
+async function main(): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: process.argv.slice(2),
+    allowPositionals: true,
+    strict: true,
+    options: {
+      url: { type: "string" },
+      token: { type: "string" },
+      "supabase-url": { type: "string" },
+      "anon-key": { type: "string" },
+      "service-role": { type: "string" },
+      tables: { type: "string" },
+      "user-a": { type: "string" },
+      "user-b": { type: "string" },
+      "signup-path": { type: "string" },
+      "closed-signup": { type: "boolean" },
+      "webhook-path": { type: "string" },
+      "llm-path": { type: "string" },
+      only: { type: "string" },
+      timeout: { type: "string" },
+      json: { type: "boolean" },
+      "no-cleanup": { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+      version: { type: "boolean", short: "v" },
+    },
+  });
+
+  if (values.help || positionals[0] === "help") {
+    process.stdout.write(HELP);
+    return;
+  }
+  if (values.version || positionals[0] === "version") {
+    process.stdout.write(`${VERSION}\n`);
+    return;
+  }
+
+  const command = positionals[0];
+  if (!command) {
+    process.stdout.write(HELP);
+    return;
+  }
+  if (positionals.length > 1) throw new UsageError("Too many arguments.");
+  if (command === "token") {
+    printToken();
+    return;
+  }
+  if (command !== "scan") throw new UsageError(`Unknown command "${command}".`);
+
+  const timeoutRaw = values.timeout ?? env("NB_TIMEOUT");
+  const config: ScanConfig = {
+    closedSignup: Boolean(values["closed-signup"]) || env("NB_CLOSED_SIGNUP") === "1",
+    cleanup: !values["no-cleanup"],
+  };
+  const url = values.url ?? env("NB_URL");
+  const token = values.token ?? env("NB_TOKEN");
+  const supabaseUrl = values["supabase-url"] ?? env("NB_SUPABASE_URL");
+  const anonKey = values["anon-key"] ?? env("NB_ANON_KEY");
+  const serviceRole = values["service-role"] ?? env("NB_SERVICE_ROLE");
+  const tables = values.tables ?? env("NB_TABLES");
+  const userA = values["user-a"] ?? env("NB_USER_A");
+  const userB = values["user-b"] ?? env("NB_USER_B");
+  const signupPath = values["signup-path"] ?? env("NB_SIGNUP_PATH");
+  const webhookPath = values["webhook-path"] ?? env("NB_WEBHOOK_PATH");
+  const llmPath = values["llm-path"] ?? env("NB_LLM_PATH");
+  const only = values.only ?? env("NB_ONLY");
+  if (url) config.url = url;
+  if (token) config.token = token;
+  if (supabaseUrl) config.supabaseUrl = supabaseUrl;
+  if (anonKey) config.anonKey = anonKey;
+  if (serviceRole) config.serviceRole = serviceRole;
+  if (tables) config.tables = tables;
+  if (userA) config.userA = userA;
+  if (userB) config.userB = userB;
+  if (signupPath) config.signupPath = signupPath;
+  if (webhookPath) config.webhookPath = webhookPath;
+  if (llmPath) config.llmPath = llmPath;
+  if (only) config.only = only;
+  if (timeoutRaw) {
+    const timeoutMs = Number(timeoutRaw);
+    if (!Number.isInteger(timeoutMs)) throw new UsageError("--timeout must be an integer");
+    config.timeoutMs = timeoutMs;
+  }
+
+  const report = await scan(config);
+  process.stdout.write(values.json ? formatJson(report) : formatHuman(report));
+  process.exitCode = exitCode(report);
+}
+
+function printToken(): void {
+  const token = crypto.randomUUID();
+  process.stdout.write(`${token}\n\n`);
+  process.stdout.write("Serve that line, and nothing else, at /.well-known/neural-breach\n");
+  process.stdout.write("on the origin you are about to scan. text/plain is enough.\n");
+  process.stdout.write(`JSON also works: {"token":"${token}"}\n\n`);
+  process.stdout.write("Anyone who can request the URL can read the token. Remove the file when you are done.\n");
+}
+
+main().catch((err: unknown) => {
+  if (err instanceof UsageError || (err instanceof TypeError && /option|argument/i.test(err.message))) {
+    process.stderr.write(`nb-probe: ${errorMessage(err)}\n`);
+    process.exitCode = 2;
+    return;
+  }
+  process.stderr.write(`nb-probe: ${errorMessage(err)}\n`);
+  process.exitCode = 3;
+});
