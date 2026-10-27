@@ -91,7 +91,13 @@ function describe(hits: SecretHit[]): string {
 
 function reproFor(hit: SecretHit): string {
   if (hit.kind === "source_map") return `curl -sS ${shellQuote(hit.file)} | grep -n sourceMappingURL`;
-  return `curl -sS ${shellQuote(hit.file)} | grep -E ${shellQuote("service_role|sb_secret_|sk_live_|sk_test_|rk_live_|rk_test_")}`;
+  if (hit.kind === "service_role") {
+    // The token is base64, so a grep for the word service_role will not see it.
+    const script =
+      'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const re=/eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}/g;for (const m of s.matchAll(re)){const token=m[0];if(!token)continue;try{const body=token.split(".")[1];if(!body)continue;const payload=JSON.parse(Buffer.from(body,"base64url").toString());if(payload.role==="service_role")console.log(token)}catch{}}})';
+    return `curl -sS ${shellQuote(hit.file)} | node -e ${shellQuote(script)}`;
+  }
+  return `curl -sS ${shellQuote(hit.file)} | grep -E ${shellQuote("sb_secret_|sk_live_|sk_test_|rk_live_|rk_test_")}`;
 }
 
 function pathOf(url: string): string {

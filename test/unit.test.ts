@@ -226,7 +226,8 @@ test("secret scan ignores anon keys and comments", () => {
 
 test("config rejects a service role passed as the anon key", () => {
   const base = { url: "http://127.0.0.1:9", token: "12345678" };
-  assert.throws(() => resolveConfig(base), UsageError);
+  assert.throws(() => resolveConfig({ token: "12345678" }), UsageError);
+  assert.throws(() => resolveConfig({ url: "http://127.0.0.1:9", token: "short" }), UsageError);
   assert.throws(
     () =>
       resolveConfig({

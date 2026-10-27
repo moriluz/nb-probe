@@ -50,7 +50,7 @@ export class SupabaseClient {
     });
   }
 
-  admin(method: string, path: string, serviceKey: string, body?: unknown): Promise<ApiResult> {
+  async admin(method: string, path: string, serviceKey: string, body?: unknown): Promise<ApiResult> {
     if (!path.startsWith("/auth/v1/admin/")) {
       throw new Error("Service role calls are limited to /auth/v1/admin/.");
     }

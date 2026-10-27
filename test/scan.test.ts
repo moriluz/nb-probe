@@ -132,19 +132,9 @@ test("vulnerable fixture fails the checks and the curl reproduces the read", asy
     assert.ok(Array.isArray(leaks));
     assert.ok(leaks.some((leak) => leak.table === "profiles"));
     assert.ok(leaks.some((leak) => leak.table === "notes"));
-    const marker = leaks[0]?.marker;
-    assert.ok(marker);
-    const body = await runCurl(results.get("logged-out-read")?.repro ?? "");
-    assert.ok(body.includes(marker));
-
-    const idor = results.get("idor-read")?.evidence?.leaks as { marker: string }[];
-    const idorMarker = idor[0]?.marker;
-    assert.ok(idorMarker);
-    const idorBody = await runCurl(results.get("idor-read")?.repro ?? "");
-    assert.ok(idorBody.includes(idorMarker));
 
     const bundleBody = await runCurl(results.get("bundle-secrets")?.repro ?? "");
-    assert.match(bundleBody, /service_role/);
+    assert.ok(bundleBody.includes(fixture.leakedServiceRole));
 
     const blob = JSON.stringify(report);
     assert.equal(blob.includes(fixture.serviceRole), false);
@@ -269,6 +259,18 @@ test("--no-cleanup leaves probe rows and users", async () => {
     assert.ok(fixture.counts().profiles >= 1);
     assert.ok(fixture.counts().notes >= 1);
     assert.match(report.notes.join(" "), /no-cleanup/i);
+
+    const results = resultMap(report);
+    const leaks = results.get("logged-out-read")?.evidence?.leaks as { marker: string }[] | undefined;
+    const marker = leaks?.[0]?.marker;
+    assert.ok(marker);
+    const readBody = await runCurl(results.get("logged-out-read")?.repro ?? "");
+    assert.ok(readBody.includes(marker), readBody);
+    const idor = results.get("idor-read")?.evidence?.leaks as { id: string }[] | undefined;
+    const idorId = idor?.[0]?.id;
+    assert.ok(idorId);
+    const idorBody = await runCurl(results.get("idor-read")?.repro ?? "");
+    assert.ok(idorBody.includes(idorId), idorBody);
   } finally {
     await fixture.close();
   }

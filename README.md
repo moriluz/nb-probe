@@ -116,7 +116,7 @@ Webhook defaults, if you do not pass `--webhook-path`: `/api/webhooks/stripe`, `
 
 `--closed-signup` is off unless you set it. The check calls GoTrue `/auth/v1/signup` and, if you passed `--signup-path`, that path, with no invite field. It does not try to bypass captchas or confirmation mail.
 
-The bundle check redacts secrets in the report (a short prefix and suffix). The curl greps the file instead of echoing the key. Anon keys are ignored. They are public.
+The report redacts secrets to a short prefix and suffix. Anon keys are ignored. They are public. The service-role curl prints a matching token when you run it. The report text does not contain that token.
 
 ## Exit codes
 
@@ -146,7 +146,7 @@ curl -sS 'http://127.0.0.1:40123/rest/v1/notes?id=eq.ROW&select=*' -H 'apikey: A
 0 passed, 1 failed, 0 skipped, 0 errors
 ```
 
-The curl is on its own line so you can copy it. Failing curls for the cross-user checks contain the probe user's access token. They do not contain the service role key.
+The curl is on its own line so you can copy it. Failing curls for the cross-user checks contain the probe user's access token. They do not contain the service role key. Cleanup deletes the probe row before the process exits, so running that curl later can return an empty list. `--no-cleanup` leaves the row in place.
 
 JSON has `results[].status`, `severity`, `summary`, `fix`, `repro`, and `evidence`. `notes` lists leftovers: a row the delete did not remove, probe users left behind because no service role was passed, tables the schema did not contain.
 
