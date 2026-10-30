@@ -48,11 +48,9 @@ export function userGate(ctx: ScanContext, id: string, title: string): CheckResu
   const state = ctx.supabase;
   if (!state) return skipped(id, title, "Pass --supabase-url and --anon-key to run this check.");
   if (!state.userA || !state.userB) {
+    if (!state.provisionError && state.skipReason) return skipped(id, title, state.skipReason);
     if (!state.provisionError && state.selected.length === 0) {
-      const named = ctx.config.tables?.length
-        ? "None of the requested tables could be probed."
-        : "No user-scoped tables in the published schema. Pass --tables to name private tables.";
-      return skipped(id, title, state.provisionError ?? named);
+      return skipped(id, title, "skipped: no tables discovered, pass --tables");
     }
     return errored(id, title, state.provisionError ?? "Could not prepare two probe users.");
   }

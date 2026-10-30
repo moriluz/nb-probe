@@ -1,5 +1,6 @@
 import { findSecrets, type SecretHit } from "../secrets.js";
-import { errorMessage, sameOriginUrl, shellQuote } from "../util.js";
+import { loadBundle } from "../bundle.js";
+import { shellQuote } from "../util.js";
 import type { Check } from "./common.js";
 import { conclude, errored } from "./common.js";
 
@@ -15,34 +16,22 @@ export const bundleSecrets: Check = {
   id: "bundle-secrets",
   title: "Secrets in the client bundle",
   async run(ctx) {
-    let page;
-    try {
-      page = await ctx.http.request(`${ctx.origin}/`, {
-        maxBytes: 1_500_000,
-        headers: { accept: "text/html" },
-      });
-    } catch (err) {
-      return [errored(this.id, this.title, `Could not fetch the entry page: ${errorMessage(err)}`)];
+    const bundle = await loadBundle(ctx);
+    if (bundle.pageError) {
+      return [errored(this.id, this.title, `Could not fetch the entry page: ${bundle.pageError}`)];
     }
-    if (page.status !== 200) {
-      return [errored(this.id, this.title, `Entry page returned HTTP ${page.status}.`)];
+    if (bundle.pageStatus !== 200) {
+      return [errored(this.id, this.title, `Entry page returned HTTP ${bundle.pageStatus}.`)];
     }
 
-    const files: { file: string; text: string }[] = [{ file: page.url, text: page.text }];
-    const scripts = extractScriptSrcs(page.text, ctx.origin).slice(0, 15);
-    const downloadErrors: string[] = [];
-    for (const scriptUrl of scripts) {
-      try {
-        const script = await ctx.http.request(scriptUrl, { maxBytes: 1_500_000 });
-        if (script.status === 200) files.push({ file: script.url, text: script.text });
-        else downloadErrors.push(`${pathOf(scriptUrl)} HTTP ${script.status}`);
-      } catch (err) {
-        downloadErrors.push(`${pathOf(scriptUrl)} ${errorMessage(err)}`);
-      }
-    }
-
+    // Source map contents are only used for table discovery. The secret scan reads what the browser loads.
+    const files = bundle.files
+      .filter((file) => file.kind !== "source-map")
+      .map((file) => ({ file: file.url, text: file.text }));
+    const scripts = bundle.files.filter((file) => file.kind === "script").map((file) => file.url);
+    const downloadErrors = bundle.errors;
     const hits = findSecrets(files, [ctx.config.anonKey ?? ""].filter(Boolean));
-    if (hits.length === 0 && scripts.length > 0 && files.length === 1 && downloadErrors.length > 0) {
+    if (hits.length === 0 && bundle.entryScripts.length > 0 && files.length === 1 && downloadErrors.length > 0) {
       return [errored(this.id, this.title, `Could not download same-origin scripts. ${downloadErrors.join("; ")}`)];
     }
     if (hits.length === 0) {
@@ -110,16 +99,4 @@ function pathOf(url: string): string {
   }
 }
 
-export function extractScriptSrcs(html: string, origin: string): string[] {
-  const urls: string[] = [];
-  for (const match of html.matchAll(/<script\b([^>]*)>/gi)) {
-    const attrs = match[1] ?? "";
-    const quoted = attrs.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
-    const bare = attrs.match(/\bsrc\s*=\s*([^\s>]+)/i);
-    const ref = quoted?.[1] ?? bare?.[1];
-    if (!ref) continue;
-    const absolute = sameOriginUrl(origin, ref);
-    if (absolute) urls.push(absolute);
-  }
-  return [...new Set(urls)];
-}
+export { extractScriptSrcs } from "../bundle.js";
