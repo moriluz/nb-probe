@@ -260,7 +260,8 @@ test("script URLs stay on the origin", () => {
   const html = `
     <script src="/assets/app.js"></script>
     <script src="https://cdn.example/app.js"></script>
-    <script src="../secret.js"></script>
+    <script src="javascript:alert(1)"></script>
+    <script src="data:text/javascript,1"></script>
     <script>inline</script>
   `;
   assert.deepEqual(extractScriptSrcs(html, origin), ["http://127.0.0.1:9/assets/app.js"]);

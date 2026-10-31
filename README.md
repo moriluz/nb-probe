@@ -14,7 +14,7 @@ Node 18 or newer.
 npx nb-probe token
 ```
 
-Put that line, alone, at `https://YOUR_ORIGIN/.well-known/neural-breach`. Then:
+Put that line, alone, at `https://YOUR_ORIGIN/.well-known/neural-breach` (for an app under a path, see [Apps under a path](#apps-under-a-path)). Then:
 
 ```bash
 npx nb-probe scan \
@@ -69,14 +69,38 @@ npx nb-probe scan --url https://app.example --token "$NB_TOKEN" \
 
 nb-probe signs in with the password grant. It never creates, changes, or deletes these accounts. It inserts one probe row per account per table and deletes them at the end.
 
+## Apps under a path
+
+`--url` can point at an app served from a path instead of the origin root, such as a GitHub Pages project site:
+
+```bash
+npx nb-probe scan --url https://user.github.io/my-app/ --token "$NB_TOKEN" \
+  --supabase-url https://<ref>.supabase.co --anon-key sb_publishable_...
+```
+
+- `https://user.github.io/my-app`, `https://user.github.io/my-app/` and `https://user.github.io/my-app/index.html` are the same target. A `#/route` fragment is dropped. A query string is refused.
+- The entry page is fetched from that path. Scripts are resolved the way a browser does: relative to the page, or to `<base href>` if the page sets one. Absolute `/assets/...` paths, `./chunk.js` imports, Vite `assets/...` preload lists (relative to the app path), Next `static/chunks/...` (under `<app path>/_next/`), and source maps next to each script are followed.
+- Only the entry page inside the path is fetched as a page. Scripts, chunks and maps it references are fetched from anywhere on the same origin. Nothing on another origin is fetched, and a redirect of the entry page out of the path stops the bundle read.
+- `--webhook-path`, `--llm-path`, `--signup-path` and the default routes are relative to the app path: `--llm-path /api/chat` with `--url https://host/my-app/` posts to `https://host/my-app/api/chat`.
+
 ## Ownership token
 
-The scan does not start until `GET /.well-known/neural-breach` returns the token you passed.
+The scan does not start until the ownership file returns the token you passed.
+
+Where nb-probe looks:
+
+| `--url` | Checked, in order |
+| --- | --- |
+| `https://app.example` | `https://app.example/.well-known/neural-breach` |
+| `https://host/my-app/` | `https://host/my-app/.well-known/neural-breach`, then `https://host/.well-known/neural-breach` |
+
+For an app under a path, put the file under that path. The origin root also works, because whoever controls the root of an origin controls every path on it. The first location that serves your token wins. If a location serves a different token, the scan stops there and does not try the next one. A 404, a redirect, or an HTML page at the first location moves on to the second.
 
 - HTTP 200 from that exact path. No redirect.
 - Body is the token as text, with an optional trailing newline, or JSON `{"token":"<the same value>"}`.
 - The route is not behind a login. The probe fetches it with no credentials.
 - The file is on the app origin (`--url`), not on the Supabase project URL.
+- On GitHub Pages, `.well-known` is a dot folder, which Jekyll skips. Add an empty `.nojekyll` file at the root of the published branch, or deploy with GitHub Actions.
 - The token is 8 to 200 characters: letters, digits, `.`, `_`, `~`, `-`. `nb-probe token` prints a UUID.
 
 On Next.js or Vite, save it as `public/.well-known/neural-breach` with no extension. The file is public to anyone who can request that URL. It is an opt-in, not a password. Remove it when you are done. If you cannot place the file, the tool will not scan the host.

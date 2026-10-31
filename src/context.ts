@@ -22,6 +22,7 @@ export interface SupabaseState {
 export interface ScanContext {
   config: ResolvedConfig;
   http: HttpClient;
+  // The app origin. App routes are built with appUrl(config.target, path), which keeps a sub-path.
   origin: string;
   notes: string[];
   ephemeralUserIds: string[];

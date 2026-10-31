@@ -3,7 +3,7 @@ import type { Severity } from "../types.js";
 import { curlOf, eqFilter, severityRank } from "../util.js";
 import { rowsFromBody, valueStuck } from "../rows.js";
 import type { Check } from "./common.js";
-import { conclude, errored, listTables, skipped, userGate } from "./common.js";
+import { conclude, errored, listTables, reproAll, skipped, userGate } from "./common.js";
 
 const BENIGN: Record<string, unknown> = {
   role: "user",
@@ -94,7 +94,7 @@ export const selfPromotion: Check = {
           severity: first?.severity ?? "high",
           summary: `Probe user changed ${columns} on their own row in ${tables}.`,
           fix: FIX,
-          repro: first?.repro,
+          repro: reproAll(promoted.map((item) => ({ label: `${item.table}.${item.column}`, repro: item.repro }))),
           evidence: { promoted: promoted.map(({ table, column, value, repro }) => ({ table, column, value, repro })) },
         }),
       ];

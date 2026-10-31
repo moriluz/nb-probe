@@ -1,3 +1,4 @@
+import { appUrl } from "../target.js";
 import type { HttpClient } from "../http.js";
 import { parseSession } from "../supabase.js";
 import type { ApiResult } from "../types.js";
@@ -36,7 +37,7 @@ export const closedSignup: Check = {
       }
       if (ctx.config.signupPath) {
         const email = `nb-probe-closed-${randomId()}@example.com`;
-        const response = await postSignup(ctx.http, `${ctx.origin}${ctx.config.signupPath}`, email);
+        const response = await postSignup(ctx.http, appUrl(ctx.config.target, ctx.config.signupPath), email);
         attempts.push(interpret("app signup", response, ctx));
       }
     } catch (err) {

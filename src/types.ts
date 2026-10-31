@@ -20,6 +20,8 @@ export interface ScanReport {
   target: string;
   supabaseUrl?: string;
   ownership: "verified" | "refused";
+  // The URL that served the matching ownership token.
+  ownershipFile?: string;
   message?: string;
   startedAt: string;
   finishedAt: string;

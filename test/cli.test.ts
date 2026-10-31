@@ -9,6 +9,12 @@ import { startFixture } from "./fixture.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+// The CLI reads NB_* variables. A shell that exported test-user credentials (NB_USER_A_EMAIL, ...)
+// must not leak into these runs.
+function cleanEnv(): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("NB_")));
+}
+
 function run(
   args: string[],
   env: NodeJS.ProcessEnv = {},
@@ -16,7 +22,7 @@ function run(
   return new Promise((resolve, reject) => {
     const child = spawn(path.join(root, "node_modules", ".bin", "tsx"), ["src/cli.ts", ...args], {
       cwd: root,
-      env: { ...process.env, ...env },
+      env: { ...cleanEnv(), ...env },
     });
     let stdout = "";
     let stderr = "";
@@ -106,6 +112,52 @@ test("cli scan against the hardened fixture exits 0", { timeout: 60_000 }, async
     assert.equal(report.summary.error, 0);
     assert.equal(result.stdout.includes(fixture.serviceRole), false);
   } finally {
+    await fixture.close();
+  }
+});
+
+test("NB_USER_* in the shell does not leak into the CLI tests", async () => {
+  const leaked = cleanEnv();
+  assert.equal(Object.keys(leaked).some((key) => key.startsWith("NB_")), false);
+});
+
+test("cli scan of an app under a path, NB_USER_* set in the parent shell", { timeout: 60_000 }, async () => {
+  const token = crypto.randomUUID();
+  const fixture = await startFixture({ mode: "vulnerable", token, basePath: "/team/app/" });
+  const saved = { email: process.env.NB_USER_A_EMAIL, password: process.env.NB_USER_A_PASSWORD };
+  process.env.NB_USER_A_EMAIL = "leak@example.com";
+  process.env.NB_USER_A_PASSWORD = "leaked-password";
+  try {
+    const result = await run([
+      "scan",
+      "--url",
+      `${fixture.url}/team/app`,
+      "--token",
+      token,
+      "--supabase-url",
+      fixture.url,
+      "--anon-key",
+      fixture.anonKey,
+      "--service-role",
+      fixture.serviceRole,
+      "--only",
+      "logged-out-read,bundle-secrets",
+    ]);
+    assert.equal(result.code, 1, result.stderr);
+    assert.match(result.stdout, /target: http:\/\/127\.0\.0\.1:\d+\/team\/app\//);
+    assert.match(result.stdout, /ownership: verified \(\/team\/app\/\.well-known\/neural-breach\)/);
+    assert.match(result.stdout, /FAIL .*logged-out-read/);
+    assert.match(result.stdout, /FAIL .*bundle-secrets/);
+    // Two leaking tables, one curl each.
+    assert.match(result.stdout, /^curl .*\/rest\/v1\/notes.*# notes$/m);
+    assert.match(result.stdout, /^curl .*\/rest\/v1\/profiles.*# profiles$/m);
+    // Exit 1, not 2: the half set of leaked NB_USER_A_* credentials never reached the CLI.
+    assert.doesNotMatch(result.stderr, /user-b|test account/i);
+  } finally {
+    if (saved.email === undefined) delete process.env.NB_USER_A_EMAIL;
+    else process.env.NB_USER_A_EMAIL = saved.email;
+    if (saved.password === undefined) delete process.env.NB_USER_A_PASSWORD;
+    else process.env.NB_USER_A_PASSWORD = saved.password;
     await fixture.close();
   }
 });

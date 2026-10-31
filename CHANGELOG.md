@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Apps under a path.
+
+- New: `--url` accepts an app under a path, such as a GitHub Pages project site (`https://user.github.io/my-app/`). With or without a trailing slash, or ending in `index.html`. A fragment is dropped; a query string is refused.
+- New: the entry page, `<base href>`, and relative script, preload, chunk and source map paths resolve against the app path. Vite `assets/...` deps and Next `static/chunks/...` resolve under the app path. Referenced scripts may still come from anywhere on the same origin; no other page is crawled, and an entry-page redirect out of the path stops the bundle read.
+- New: for a path target the ownership file is read from `<app path>/.well-known/neural-breach` first, then from the origin root. A wrong token at the first location refuses the scan without trying the second. The report says which file matched (`ownershipFile` in JSON).
+- Changed: `--webhook-path`, `--llm-path`, `--signup-path` and the default routes are relative to the app path. Unchanged for root apps.
+- New: a failure in several tables prints a curl for every table, one per line, tagged with the table name. A single finding is still one bare curl.
+- Tests: the CLI tests no longer inherit `NB_*` variables from the shell.
+
 ## 0.2.0 - 2026-10-31
 
 Hosted Supabase works again.

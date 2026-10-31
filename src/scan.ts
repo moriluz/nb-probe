@@ -14,7 +14,7 @@ export async function scan(input: ScanConfig): Promise<ScanReport> {
   const startedAt = new Date().toISOString();
   const config = resolveConfig(input);
   const http = new HttpClient(config.timeoutMs);
-  const ownership = await checkOwnership(http, config.url, config.token);
+  const ownership = await checkOwnership(http, config.target, config.token);
   if (!ownership.ok) {
     return buildReport({
       target: config.url,
@@ -44,6 +44,7 @@ export async function scan(input: ScanConfig): Promise<ScanReport> {
     target: config.url,
     supabaseUrl: config.supabaseUrl,
     ownership: "verified",
+    ownershipFile: ownership.url,
     startedAt,
     results,
     notes: ctx.notes,
@@ -55,7 +56,7 @@ function createContext(config: ResolvedConfig, http: HttpClient): ScanContext {
   const ctx: ScanContext = {
     config,
     http,
-    origin: config.url,
+    origin: config.target.origin,
     notes: [],
     ephemeralUserIds: [],
   };

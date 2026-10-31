@@ -31,6 +31,16 @@ export interface FixtureOptions {
   app?: "inline" | "sample";
   // Tables that exist in PostgREST. Defaults to all three; [] mimics a project with nothing public.
   tables?: ("profiles" | "notes" | "posts")[];
+  // Serve the app (page, assets, /api routes) under this path, like a GitHub Pages project site.
+  // Supabase routes (/auth/v1, /rest/v1) stay at the root. Must start and end with "/".
+  basePath?: string;
+  // How the sub-path page references its scripts: "relative" (./assets/x.js), "absolute"
+  // (/sub/assets/x.js, Vite with base), or "base-href" (<base href="/sub/"> and assets/x.js).
+  subpathRefs?: "relative" | "absolute" | "base-href";
+  // Where the ownership file is served. Defaults to the base path when basePath is set, else the root.
+  ownershipAt?: ("base" | "root")[];
+  // Token served at the root location, when it should differ from token.
+  rootToken?: string;
 }
 
 export interface FixtureRequest {
@@ -46,6 +56,8 @@ export interface FixtureRequest {
 
 export interface Fixture {
   url: string;
+  // url + basePath, with a trailing slash. Equals url + "/" for a root app.
+  appUrl: string;
   token: string;
   anonKey: string;
   serviceRole: string;
@@ -85,6 +97,11 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
   const keyStyle = options.keyStyle ?? "legacy";
   const appStyle = options.app ?? "inline";
   const liveTables: string[] = options.tables ?? ["profiles", "notes", "posts"];
+  const basePath = options.basePath ?? "/";
+  if (!basePath.startsWith("/") || !basePath.endsWith("/")) throw new Error("basePath must start and end with /");
+  const subpathRefs = options.subpathRefs ?? "relative";
+  const ownershipAt = options.ownershipAt ?? (basePath === "/" ? ["root"] : ["base"]);
+  const rootToken = options.rootToken ?? token;
   const anonKey =
     keyStyle === "publishable"
       ? `sb_publishable_${crypto.randomBytes(16).toString("base64url").slice(0, 22)}_${crypto.randomBytes(4).toString("hex")}`
@@ -201,21 +218,56 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
       body: bodyText.slice(0, 2000),
     });
 
+    if (method === "GET" && pathname === `${basePath}.well-known/neural-breach` && basePath !== "/") {
+      if (!serveOwnership || !ownershipAt.includes("base")) return send(res, 404, { message: "not found" });
+      return ownershipFile(res, token);
+    }
     if (pathname === "/.well-known/neural-breach" && method === "GET") {
-      if (!serveOwnership) return send(res, 404, { message: "not found" });
-      if (tokenStyle === "json") return send(res, 200, { token });
-      return send(res, 200, `${token}\n`);
+      if (!serveOwnership || !ownershipAt.includes("root")) return send(res, 404, { message: "not found" });
+      return ownershipFile(res, basePath === "/" ? token : rootToken);
     }
-    if (appStyle === "sample" && method === "GET" && (pathname === "/" || pathname.startsWith("/assets/"))) {
-      return sample(res, pathname);
+    if (pathname.startsWith("/auth/v1/") || pathname === "/rest/v1" || pathname.startsWith("/rest/v1/")) {
+      return supabaseRoute(req, res, pathname, method, url, bodyText, identity);
     }
-    if (pathname === "/" && method === "GET") return send(res, 200, html(), "text/html; charset=utf-8");
-    if (pathname === "/assets/app.js" && method === "GET") {
+    // App routes live under basePath. Anything else on the origin is a 404, like another project.
+    let appPath: string;
+    if (basePath === "/") appPath = pathname;
+    else if (pathname.startsWith(basePath)) appPath = `/${pathname.slice(basePath.length)}`;
+    else if (pathname === basePath.slice(0, -1) && method === "GET") {
+      res.writeHead(301, { location: basePath });
+      res.end();
+      return;
+    } else return send(res, 404, { message: "not found" });
+
+    if (appStyle === "sample" && method === "GET" && (appPath === "/" || appPath === "/index.html" || appPath.startsWith("/assets/"))) {
+      return sample(res, appPath);
+    }
+    if ((appPath === "/" || appPath === "/index.html") && method === "GET") {
+      return send(res, 200, html(basePath, subpathRefs), "text/html; charset=utf-8");
+    }
+    if (appPath === "/assets/app.js" && method === "GET") {
       return send(res, 200, javascript(leakSecrets, sourceMap, anonKey, leakedServiceRole), "text/javascript; charset=utf-8");
     }
-    if (pathname === "/api/webhooks/stripe" && method === "POST") return webhook(req, res);
-    if (pathname === "/api/chat" && method === "POST") return chat(res, bodyText, identity.role);
-    if (pathname === "/api/signup" && method === "POST") return appSignup(res, bodyText);
+    if (appPath === "/api/webhooks/stripe" && method === "POST") return webhook(req, res);
+    if (appPath === "/api/chat" && method === "POST") return chat(res, bodyText, identity.role);
+    if (appPath === "/api/signup" && method === "POST") return appSignup(res, bodyText);
+    return send(res, 404, { message: "not found" });
+  }
+
+  function ownershipFile(res: http.ServerResponse, value: string): void {
+    if (tokenStyle === "json") return send(res, 200, { token: value });
+    return send(res, 200, `${value}\n`);
+  }
+
+  async function supabaseRoute(
+    _req: http.IncomingMessage,
+    res: http.ServerResponse,
+    pathname: string,
+    method: string,
+    url: URL,
+    bodyText: string,
+    identity: Identity,
+  ): Promise<void> {
     if (pathname === "/auth/v1/signup" && method === "POST") return authSignup(res, bodyText, identity);
     if (pathname === "/auth/v1/token" && method === "POST") return authToken(res, bodyText, identity);
     if (pathname === "/auth/v1/admin/users" && method === "POST") return adminCreate(res, bodyText, identity);
@@ -241,7 +293,9 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
       : name.endsWith(".map")
         ? "application/json"
         : "text/javascript; charset=utf-8";
-    send(res, 200, fs.readFileSync(file, "utf8"), type);
+    let text = fs.readFileSync(file, "utf8");
+    if (name === "index.html" && basePath !== "/") text = rebaseHtml(text, basePath, subpathRefs);
+    send(res, 200, text, type);
   }
 
   function webhook(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -518,6 +572,7 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
 
   return {
     url: `http://127.0.0.1:${address.port}`,
+    appUrl: `http://127.0.0.1:${address.port}${basePath}`,
     token,
     anonKey,
     serviceRole,
@@ -538,8 +593,8 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
   };
 }
 
-function html(): string {
-  return `<!doctype html>
+function html(basePath = "/", refs: "relative" | "absolute" | "base-href" = "relative"): string {
+  const page = `<!doctype html>
 <html>
   <head><title>Fixture</title></head>
   <body>
@@ -548,6 +603,14 @@ function html(): string {
   </body>
 </html>
 `;
+  return basePath === "/" ? page : rebaseHtml(page, basePath, refs);
+}
+
+// Rewrites root-absolute "/assets/..." references for an app served under basePath.
+function rebaseHtml(page: string, basePath: string, refs: "relative" | "absolute" | "base-href"): string {
+  if (refs === "absolute") return page.replaceAll(`"/assets/`, `"${basePath}assets/`);
+  if (refs === "relative") return page.replaceAll(`"/assets/`, `"./assets/`);
+  return page.replace(/<head>/i, `<head><base href="${basePath}">`).replaceAll(`"/assets/`, `"assets/`);
 }
 
 function javascript(leakSecrets: boolean, sourceMap: boolean, anonKey: string, leakedServiceRole: string): string {

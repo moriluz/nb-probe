@@ -14,11 +14,13 @@ Ownership-gated checks for an app you control. Supabase first.
 
 Usage:
   nb-probe token
-  nb-probe scan --url <origin> --token <token> [options]
+  nb-probe scan --url <app url> --token <token> [options]
 
 Options:
-  --url              App origin, for example https://app.example
-  --token            Value served at /.well-known/neural-breach
+  --url              Where the app is served: https://app.example, or a
+                     sub-path such as https://user.github.io/my-app/
+  --token            Value served at .well-known/neural-breach under the
+                     app path, or at the origin root
   --supabase-url     Supabase project origin
   --anon-key         Supabase anon or publishable key
   --service-role     Optional. Used only to create and delete probe users
@@ -32,6 +34,8 @@ Options:
   --user-b-email     Test account B email
   --user-b-password  Test account B password (prefer NB_USER_B_PASSWORD)
   --signup-path      App path to call when --closed-signup is set
+                     (--signup-path, --webhook-path and --llm-path are
+                     relative to the app path in --url)
   --closed-signup    Assert that public registration must fail
   --webhook-path     Webhook path to probe
   --llm-path         LLM path to probe
@@ -172,6 +176,8 @@ function printToken(): void {
   process.stdout.write(`${token}\n\n`);
   process.stdout.write("Serve that line, and nothing else, at /.well-known/neural-breach\n");
   process.stdout.write("on the origin you are about to scan. text/plain is enough.\n");
+  process.stdout.write("For an app under a path, such as https://user.github.io/my-app/, put it at\n");
+  process.stdout.write("/my-app/.well-known/neural-breach instead. The origin root also works.\n");
   process.stdout.write(`JSON also works: {"token":"${token}"}\n\n`);
   process.stdout.write("Anyone who can request the URL can read the token. Remove the file when you are done.\n");
 }
