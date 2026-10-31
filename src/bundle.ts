@@ -142,6 +142,9 @@ export function chunkRefs(text: string, scriptUrl: string, origin: string): stri
   for (const match of text.matchAll(CHUNK_RE)) {
     const ref = match[1];
     if (!ref || ref.includes("//") || ref.length > 200) continue;
+    // Bundlers name chunks with a path ("./Dashboard-x1.js", "assets/x.js", "static/chunks/x.js").
+    // A bare "Node.js" or "Next.js" is prose in a library string, not a file.
+    if (!ref.includes("/")) continue;
     const resolved = resolveRef(ref, scriptUrl, origin);
     if (resolved) out.add(resolved);
     if (out.size >= 200) break;

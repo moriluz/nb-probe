@@ -7,17 +7,19 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import type { BundleFile } from "../src/bundle.js";
+import { chunkRefs, type BundleFile } from "../src/bundle.js";
 import { resolveConfig } from "../src/config.js";
 import {
   columnSuggestion,
   extractUsage,
+  guessColumn,
   missingColumn,
   parsePostgrestError,
   parseSelect,
   tableSuggestion,
 } from "../src/discovery.js";
 import { HttpClient } from "../src/http.js";
+import { deriveTable } from "../src/openapi.js";
 import { exitCode, formatHuman } from "../src/report.js";
 import { scan } from "../src/scan.js";
 import { SupabaseClient } from "../src/supabase.js";
@@ -377,3 +379,48 @@ test("a wrong test-account password is a clear error", async () => {
     assert.equal(JSON.stringify(report).includes("wrong-password"), false);
   });
 });
+
+test("chunk refs need a path: library prose like Node.js is not fetched", () => {
+  const origin = "https://app.example";
+  const text = 'import("./billing-K4WFINN3.js");const a="assets/Dashboard-x1.js";throw Error("needs Node.js or Next.js")';
+  const refs = chunkRefs(text, `${origin}/assets/main.js`, origin);
+  assert.deepEqual(refs.sort(), [`${origin}/assets/Dashboard-x1.js`, `${origin}/assets/billing-K4WFINN3.js`].sort());
+});
+
+test("sender_id, creator_id and uploaded_by count as owner columns, user_id still wins", () => {
+  const cols = (names: string[]) => names.map((name) => guessColumn(name));
+  assert.equal(deriveTable("messages", cols(["id", "sender_id", "content"])).ownerColumn, "sender_id");
+  assert.equal(deriveTable("posts", cols(["id", "creator_id", "body"])).ownerColumn, "creator_id");
+  assert.equal(deriveTable("files", cols(["id", "uploaded_by", "note"])).ownerColumn, "uploaded_by");
+  assert.equal(deriveTable("todos", cols(["id", "sender_id", "user_id"])).ownerColumn, "user_id");
+});
+
+for (const status of [405, 501]) {
+  test(`webhook and LLM checks skip on HTTP ${status} from a static host`, async () => {
+    const token = crypto.randomUUID();
+    const server = http.createServer((req, res) => {
+      if (req.method === "GET" && req.url === "/.well-known/neural-breach") {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end(token);
+        return;
+      }
+      if (req.method === "POST") {
+        res.writeHead(status, { "content-type": "text/html" });
+        res.end("<h1>Unsupported method</h1>");
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const report = await scan({ url: `http://127.0.0.1:${port}`, token, only: "webhook-signature,llm-endpoint" });
+      const statuses = report.results.map((result) => `${result.id}:${result.status}`).sort();
+      assert.deepEqual(statuses, ["llm-endpoint:skip", "webhook-signature:skip"]);
+      assert.equal(exitCode(report), 0);
+    } finally {
+      server.close();
+    }
+  });
+}

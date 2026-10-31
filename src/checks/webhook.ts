@@ -2,7 +2,7 @@ import type { HttpClient } from "../http.js";
 import type { ApiResult } from "../types.js";
 import { errorMessage, toCurl } from "../util.js";
 import type { Check } from "./common.js";
-import { conclude, errored, skipped } from "./common.js";
+import { conclude, errored, NO_ROUTE, skipped } from "./common.js";
 
 const STRIPE_FIX =
   "Verify Stripe-Signature against the raw body and the endpoint secret before parsing the event. Return 400 when the header is missing or invalid.";
@@ -36,7 +36,7 @@ export const webhookSignature: Check = {
       } catch (err) {
         return [errored(this.id, this.title, `POST ${path} failed: ${errorMessage(err)}`)];
       }
-      if (response.status === 404) continue;
+      if (NO_ROUTE.has(response.status)) continue;
       const repro = toCurl({
         method: "POST",
         url: response.url,
@@ -73,7 +73,7 @@ export const webhookSignature: Check = {
           }),
         ];
       }
-      if ([400, 401, 403, 405, 415, 422].includes(response.status)) {
+      if ([400, 401, 403, 415, 422].includes(response.status)) {
         return [
           conclude({
             id: this.id,
@@ -99,7 +99,7 @@ export const webhookSignature: Check = {
       skipped(
         this.id,
         this.title,
-        `No webhook endpoint at ${where} (HTTP 404). Pass --webhook-path if it lives somewhere else.`,
+        `No webhook endpoint at ${where} (HTTP 404, 405, or 501). Pass --webhook-path if it lives somewhere else.`,
       ),
     ];
   },

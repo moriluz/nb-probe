@@ -90,7 +90,7 @@ export async function prepareSupabase(ctx: ScanContext): Promise<void> {
 }
 
 // Reads the OpenAPI schema when the key is allowed to. Hosted Supabase refuses it to anon and
-// publishable keys (HTTP 403 since 2026-04-08), so the fallback finds tables from the app bundle
+// publishable keys (HTTP 403 or 401 since 2026-04-08), so the fallback finds tables from the app bundle
 // and confirms them with read-only PostgREST requests. Returns false only on a hard error.
 async function loadSchema(ctx: ScanContext, anonKey: string): Promise<boolean> {
   const state = ctx.supabase;

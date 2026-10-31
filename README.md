@@ -42,7 +42,7 @@ npx tsx src/cli.ts scan --url https://app.example --token "$NB_TOKEN" \
 
 ## Hosted Supabase
 
-Since April 8, 2026, hosted Supabase refuses the Data API schema (`GET /rest/v1/`) to anon and publishable keys with HTTP 403 `Access to schema is forbidden`. Projects created after March 11, 2026 had it from the start. nb-probe 0.1.0 read the table list from that schema, so on hosted projects every data check errored, and `--tables` did not help.
+Since April 8, 2026, hosted Supabase refuses the Data API schema (`GET /rest/v1/`) to anon and publishable keys. Depending on the project it answers HTTP 403 `Access to schema is forbidden` or HTTP 401 `Secret API key required`; nb-probe treats any non-200 the same way. Projects created after March 11, 2026 had it from the start. nb-probe 0.1.0 read the table list from that schema, so on hosted projects every data check errored, and `--tables` did not help.
 
 From 0.2.0, when the schema is refused, nb-probe finds tables another way:
 
@@ -96,9 +96,9 @@ On Next.js or Vite, save it as `public/.well-known/neural-breach` with no extens
 
 Severity is a local label for the exit code. It is not a CVSS score and it is not a CVE.
 
-`--service-role` is optional. It is sent only to `/auth/v1/admin` to create and delete probe users. Passing it as `--anon-key` is a usage error. If you already have two sessions, pass `--user-a` and `--user-b` and skip the service role, or pass two test accounts with `--user-a-email` / `--user-a-password` / `--user-b-email` / `--user-b-password`. `--tables` limits the probe to named tables. Without it, tables whose schema has `user_id`, `owner_id`, `created_by`, or `author_id` are selected, up to 20. `--only` runs a subset of the ids above.
+`--service-role` is optional. It is sent only to `/auth/v1/admin` to create and delete probe users. Passing it as `--anon-key` is a usage error. If you already have two sessions, pass `--user-a` and `--user-b` and skip the service role, or pass two test accounts with `--user-a-email` / `--user-a-password` / `--user-b-email` / `--user-b-password`. `--tables` limits the probe to named tables. Without it, tables whose schema has `user_id`, `owner_id`, `created_by`, `author_id`, `sender_id`, `creator_id`, or `uploaded_by` are selected, up to 20. `--only` runs a subset of the ids above.
 
-Webhook defaults: `/api/webhooks/stripe`, `/api/stripe/webhook`, `/api/webhook`. LLM defaults: `/api/chat`, `/api/llm`, `/api/ai`. A 404 on all of them is a skip. `--closed-signup` is off unless you set it.
+Webhook defaults: `/api/webhooks/stripe`, `/api/stripe/webhook`, `/api/webhook`. LLM defaults: `/api/chat`, `/api/llm`, `/api/ai`. A 404, 405, or 501 on all of them is a skip: those mean no POST handler, which is what a static host returns. `--closed-signup` is off unless you set it.
 
 The probe inserts rows, may patch a field on a row it created, posts one unsigned event id `evt_nb_probe_canary`, and posts `{"messages":[{"content":"nb-probe ping"}]}` to the chat route. Run it against staging. Cleanup deletes the probe rows before exit, and deletes the users when a service role was passed, so a curl copied from the report often returns `[]` afterward. `--no-cleanup` leaves them.
 

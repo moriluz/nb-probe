@@ -1,6 +1,8 @@
 import type { ColumnSchema, TableSchema } from "./types.js";
 
-export const OWNER_COLUMNS = ["user_id", "owner_id", "created_by", "author_id"];
+// Ordered by preference. sender_id, creator_id and uploaded_by are common in messaging, content and
+// file tables that vibe-coded apps generate, and hold auth.uid() just like user_id.
+export const OWNER_COLUMNS = ["user_id", "owner_id", "created_by", "author_id", "sender_id", "creator_id", "uploaded_by"];
 export const MARKER_COLUMNS = [
   "note",
   "notes",

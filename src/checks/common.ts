@@ -86,3 +86,7 @@ export function idQuery(canary: Canary): string {
 export function listTables(names: string[]): string {
   return [...new Set(names)].sort().join(", ");
 }
+
+// A POST to these means there is no handler on the path: 404 from an app router, 405 from a static
+// host or a GET-only route, 501 from a plain file server that does not implement POST.
+export const NO_ROUTE = new Set([404, 405, 501]);
