@@ -31,6 +31,39 @@ export interface ScanReport {
     error: number;
   };
   notes: string[];
+  // Where the probed tables came from. Absent when no Supabase project was given.
+  discovery?: DiscoveryReport;
+}
+
+// openapi: the /rest/v1/ schema. --tables: named by the user. bundle: a supabase-js call in a
+// same-origin script. source-map: the same, inside a published source map. postgrest-hint: a
+// "Perhaps you meant" suggestion in a PostgREST error. guess: a common table name.
+export type TableSource = "openapi" | "--tables" | "bundle" | "source-map" | "postgrest-hint" | "guess";
+
+export interface DiscoveredTable {
+  name: string;
+  sources: TableSource[];
+  // probed: canary rows were attempted. found: the table exists but was not probed (see note).
+  status: "probed" | "found" | "not-found" | "error";
+  note?: string;
+  // The name PostgREST corrected to this one, for postgrest-hint tables.
+  suggestedFor?: string;
+  ownerColumn?: string | null;
+  markerColumn?: string | null;
+  columns?: string[];
+}
+
+export interface DiscoveryReport {
+  schema: "openapi" | "discovery";
+  openApi: { status: number | null; message?: string };
+  files: { pages: number; scripts: number; sourceMaps: number; errors: string[] };
+  tables: DiscoveredTable[];
+  // Seen in the bundle and listed for the report. nb-probe never calls an RPC.
+  rpcs: string[];
+  buckets: string[];
+  // Supabase project hosts named in the bundle, to catch a scan pointed at the wrong project.
+  projects: string[];
+  requests: number;
 }
 
 export interface ScanConfig {
@@ -42,6 +75,10 @@ export interface ScanConfig {
   tables?: string[] | string;
   userA?: string;
   userB?: string;
+  userAEmail?: string;
+  userAPassword?: string;
+  userBEmail?: string;
+  userBPassword?: string;
   signupPath?: string;
   closedSignup?: boolean;
   webhookPath?: string;

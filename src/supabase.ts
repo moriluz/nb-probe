@@ -1,6 +1,6 @@
 import type { HttpClient } from "./http.js";
 import type { ApiResult } from "./types.js";
-import { assertIdent, assertNotServiceRole } from "./util.js";
+import { assertIdent, assertNotServiceRole, isJwt } from "./util.js";
 
 export class SupabaseClient {
   constructor(
@@ -54,11 +54,9 @@ export class SupabaseClient {
     if (!path.startsWith("/auth/v1/admin/")) {
       throw new Error("Service role calls are limited to /auth/v1/admin/.");
     }
-    const headers: Record<string, string> = {
-      apikey: serviceKey,
-      authorization: `Bearer ${serviceKey}`,
-      accept: "application/json",
-    };
+    const headers: Record<string, string> = { apikey: serviceKey, accept: "application/json" };
+    // sb_secret_ keys are not JWTs. The hosted gateway reads them from apikey only.
+    if (isJwt(serviceKey)) headers.authorization = `Bearer ${serviceKey}`;
     let payload: string | undefined;
     if (body !== undefined) {
       headers["content-type"] = "application/json";
@@ -79,12 +77,11 @@ export class SupabaseClient {
     extra?: Record<string, string>,
   ): Promise<ApiResult> {
     if (path.startsWith("/rest/v1")) assertNotServiceRole(bearer);
-    const headers: Record<string, string> = {
-      apikey: this.anonKey,
-      authorization: `Bearer ${bearer}`,
-      accept: "application/json",
-      ...extra,
-    };
+    const headers: Record<string, string> = { apikey: this.anonKey, accept: "application/json" };
+    // Authorization carries a JWT only. An sb_publishable_ key there gets PGRST301 ("Expected 3 parts
+    // in JWT"), so anonymous calls with a publishable key send apikey alone and the gateway maps it to anon.
+    if (isJwt(bearer)) headers.authorization = `Bearer ${bearer}`;
+    Object.assign(headers, extra);
     let payload: string | undefined;
     if (body !== undefined) {
       headers["content-type"] = "application/json";

@@ -1,4 +1,4 @@
-import type { CheckResult, ScanReport, Severity } from "./types.js";
+import type { CheckResult, DiscoveryReport, ScanReport, Severity } from "./types.js";
 import { severityRank } from "./util.js";
 import { VERSION } from "./version.js";
 
@@ -28,6 +28,7 @@ export function formatHuman(report: ScanReport): string {
   ];
   if (report.supabaseUrl) lines.push(`supabase: ${report.supabaseUrl}`);
   if (report.message) lines.push(report.message);
+  if (report.discovery) lines.push(...formatDiscovery(report.discovery));
   lines.push("");
   for (const result of report.results) {
     lines.push(formatResult(result));
@@ -39,6 +40,31 @@ export function formatHuman(report: ScanReport): string {
   );
   for (const note of report.notes) lines.push(`note: ${note}`);
   return `${lines.join("\n")}\n`;
+}
+
+function formatDiscovery(discovery: DiscoveryReport): string[] {
+  const lines: string[] = [];
+  if (discovery.schema === "openapi") {
+    lines.push(`schema: OpenAPI (${discovery.tables.length} tables)`);
+    return lines;
+  }
+  const files = discovery.files;
+  lines.push(
+    `schema: refused (HTTP ${discovery.openApi.status ?? "error"}), discovered from ${files.scripts} scripts, ${files.sourceMaps} source maps and PostgREST`,
+  );
+  const shown = discovery.tables.filter((table) => table.status !== "not-found" || !table.sources.includes("guess"));
+  if (shown.length === 0) lines.push("tables: none");
+  for (const table of shown) {
+    const parts = [`  ${table.name.padEnd(20)} ${table.status.padEnd(9)} ${table.sources.join(", ")}`];
+    if (table.suggestedFor) parts.push(`(suggested for ${table.suggestedFor})`);
+    if (table.ownerColumn) parts.push(`owner: ${table.ownerColumn}`);
+    if (table.note) parts.push(`- ${table.note}`);
+    lines.push(parts.join(" "));
+  }
+  if (discovery.rpcs.length) lines.push(`rpc (seen in bundle, not called): ${discovery.rpcs.join(", ")}`);
+  if (discovery.buckets.length) lines.push(`storage buckets (seen in bundle): ${discovery.buckets.join(", ")}`);
+  if (files.errors.length) lines.push(`bundle fetch errors: ${files.errors.slice(0, 3).join("; ")}`);
+  return lines;
 }
 
 function formatResult(result: CheckResult): string {
@@ -65,6 +91,7 @@ export function buildReport(args: {
   startedAt: string;
   results: CheckResult[];
   notes: string[];
+  discovery?: DiscoveryReport;
 }): ScanReport {
   const report: ScanReport = {
     tool: "nb-probe",
@@ -80,6 +107,7 @@ export function buildReport(args: {
   };
   if (args.supabaseUrl) report.supabaseUrl = args.supabaseUrl;
   if (args.message) report.message = args.message;
+  if (args.discovery) report.discovery = args.discovery;
   return report;
 }
 

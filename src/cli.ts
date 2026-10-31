@@ -22,9 +22,15 @@ Options:
   --supabase-url     Supabase project origin
   --anon-key         Supabase anon or publishable key
   --service-role     Optional. Used only to create and delete probe users
-  --tables           Comma-separated tables to probe
+  --tables           Comma-separated tables to probe. Checked against
+                     PostgREST directly when the API schema is not
+                     readable (hosted Supabase since April 2026)
   --user-a           Existing user JWT. Requires --user-b
   --user-b           Existing user JWT. Requires --user-a
+  --user-a-email     Test account A email. Signs in with the password below
+  --user-a-password  Test account A password (prefer NB_USER_A_PASSWORD)
+  --user-b-email     Test account B email
+  --user-b-password  Test account B password (prefer NB_USER_B_PASSWORD)
   --signup-path      App path to call when --closed-signup is set
   --closed-signup    Assert that public registration must fail
   --webhook-path     Webhook path to probe
@@ -50,7 +56,8 @@ Exit codes:
 
 A low failure on its own (a public source map) exits 0.
 Keys in the command line are visible to other users on the machine. Prefer
-NB_URL, NB_TOKEN, NB_SUPABASE_URL, NB_ANON_KEY, and NB_SERVICE_ROLE.
+NB_URL, NB_TOKEN, NB_SUPABASE_URL, NB_ANON_KEY, NB_SERVICE_ROLE,
+NB_USER_A_EMAIL, NB_USER_A_PASSWORD, NB_USER_B_EMAIL, and NB_USER_B_PASSWORD.
 `;
 
 function env(name: string): string | undefined {
@@ -74,6 +81,10 @@ async function main(): Promise<void> {
       tables: { type: "string" },
       "user-a": { type: "string" },
       "user-b": { type: "string" },
+      "user-a-email": { type: "string" },
+      "user-a-password": { type: "string" },
+      "user-b-email": { type: "string" },
+      "user-b-password": { type: "string" },
       "signup-path": { type: "string" },
       "closed-signup": { type: "boolean" },
       "webhook-path": { type: "string" },
@@ -121,6 +132,10 @@ async function main(): Promise<void> {
   const tables = values.tables ?? env("NB_TABLES");
   const userA = values["user-a"] ?? env("NB_USER_A");
   const userB = values["user-b"] ?? env("NB_USER_B");
+  const userAEmail = values["user-a-email"] ?? env("NB_USER_A_EMAIL");
+  const userAPassword = values["user-a-password"] ?? process.env.NB_USER_A_PASSWORD;
+  const userBEmail = values["user-b-email"] ?? env("NB_USER_B_EMAIL");
+  const userBPassword = values["user-b-password"] ?? process.env.NB_USER_B_PASSWORD;
   const signupPath = values["signup-path"] ?? env("NB_SIGNUP_PATH");
   const webhookPath = values["webhook-path"] ?? env("NB_WEBHOOK_PATH");
   const llmPath = values["llm-path"] ?? env("NB_LLM_PATH");
@@ -133,6 +148,10 @@ async function main(): Promise<void> {
   if (tables) config.tables = tables;
   if (userA) config.userA = userA;
   if (userB) config.userB = userB;
+  if (userAEmail) config.userAEmail = userAEmail;
+  if (userAPassword) config.userAPassword = userAPassword;
+  if (userBEmail) config.userBEmail = userBEmail;
+  if (userBPassword) config.userBPassword = userBPassword;
   if (signupPath) config.signupPath = signupPath;
   if (webhookPath) config.webhookPath = webhookPath;
   if (llmPath) config.llmPath = llmPath;

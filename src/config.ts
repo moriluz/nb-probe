@@ -11,6 +11,8 @@ export interface ResolvedConfig {
   tables?: string[];
   userA?: string;
   userB?: string;
+  userACredentials?: { email: string; password: string };
+  userBCredentials?: { email: string; password: string };
   signupPath?: string;
   closedSignup: boolean;
   webhookPaths: string[];
@@ -83,6 +85,19 @@ function rejectSecretAnon(anonKey: string): void {
   }
 }
 
+function credentials(
+  email: string | undefined,
+  password: string | undefined,
+  side: "a" | "b",
+): { email: string; password: string } | undefined {
+  const trimmed = email?.trim();
+  if (!trimmed && !password) return undefined;
+  if (!trimmed) throw new UsageError(`--user-${side}-password needs --user-${side}-email`);
+  if (!password) throw new UsageError(`--user-${side}-email needs --user-${side}-password`);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) throw new UsageError(`--user-${side}-email is not an email address`);
+  return { email: trimmed, password };
+}
+
 export function resolveConfig(input: ScanConfig): ResolvedConfig {
   if (!input.url) throw new UsageError("--url is required");
   if (!input.token) throw new UsageError("--token is required");
@@ -116,7 +131,24 @@ export function resolveConfig(input: ScanConfig): ResolvedConfig {
     throw new UsageError("Probe user JWTs must not be the service role key");
   }
 
-  const tables = splitList(input.tables);
+  const credsA = credentials(input.userAEmail, input.userAPassword, "a");
+  const credsB = credentials(input.userBEmail, input.userBPassword, "b");
+  if ((credsA && !credsB) || (!credsA && credsB)) {
+    throw new UsageError("Pass sign-in details for both test users (--user-a-email/--user-a-password and --user-b-email/--user-b-password), or neither");
+  }
+  if (credsA && userA) {
+    throw new UsageError("Pass the test users either as JWTs (--user-a/--user-b) or as email and password, not both");
+  }
+  if (credsA && credsB && credsA.email.toLowerCase() === credsB.email.toLowerCase()) {
+    throw new UsageError("Test users A and B must be two different accounts");
+  }
+  if (credsA && !supabaseUrl) throw new UsageError("Test user sign-in needs --supabase-url and --anon-key");
+
+  const tables = splitList(input.tables)?.map((name) => name.replace(/^public\./, ""));
+  if (tables) {
+    const bad = tables.filter((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
+    if (bad.length) throw new UsageError(`--tables takes plain table names in the public schema: ${bad.join(", ")}`);
+  }
   if (input.tables !== undefined && !tables) throw new UsageError("--tables is empty");
   const only = splitList(input.only);
   if (input.only !== undefined && !only) throw new UsageError("--only is empty");
@@ -155,6 +187,8 @@ export function resolveConfig(input: ScanConfig): ResolvedConfig {
   if (tables) resolved.tables = tables;
   if (userA) resolved.userA = userA;
   if (userB) resolved.userB = userB;
+  if (credsA) resolved.userACredentials = credsA;
+  if (credsB) resolved.userBCredentials = credsB;
   if (input.signupPath) resolved.signupPath = safePath(input.signupPath, "--signup-path");
   if (only) resolved.only = only;
   return resolved;

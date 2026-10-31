@@ -2,7 +2,7 @@ import type { HttpClient } from "../http.js";
 import type { ApiResult } from "../types.js";
 import { errorMessage, toCurl } from "../util.js";
 import type { Check } from "./common.js";
-import { conclude, errored, skipped } from "./common.js";
+import { conclude, errored, NO_ROUTE, skipped } from "./common.js";
 
 const BODY = JSON.stringify({
   messages: [{ role: "user", content: "nb-probe ping" }],
@@ -22,7 +22,7 @@ export const llmEndpoint: Check = {
     for (const path of ctx.config.llmPaths) {
       try {
         const unauth = await post(ctx.http, `${ctx.origin}${path}`, undefined);
-        if (unauth.status === 404) {
+        if (NO_ROUTE.has(unauth.status)) {
           missing.push(path);
           continue;
         }
@@ -38,7 +38,7 @@ export const llmEndpoint: Check = {
         skipped(
           this.id,
           this.title,
-          `No LLM endpoint at ${where} (HTTP 404). Pass --llm-path if it lives somewhere else.`,
+          `No LLM endpoint at ${where} (HTTP 404, 405, or 501). Pass --llm-path if it lives somewhere else.`,
         ),
       ];
     }

@@ -1,7 +1,8 @@
+import type { Bundle } from "./bundle.js";
 import type { ResolvedConfig } from "./config.js";
 import type { HttpClient } from "./http.js";
 import type { SupabaseClient } from "./supabase.js";
-import type { Canary, SessionUser, TableSchema } from "./types.js";
+import type { Canary, DiscoveryReport, SessionUser, TableSchema } from "./types.js";
 
 export interface SupabaseState {
   rest: SupabaseClient;
@@ -13,6 +14,9 @@ export interface SupabaseState {
   canaries: Canary[];
   insertErrors: string[];
   provisionError?: string;
+  // Set when no table could be probed for a reason that is not an error, for example nothing was discovered.
+  skipReason?: string;
+  discovery?: DiscoveryReport;
 }
 
 export interface ScanContext {
@@ -22,4 +26,5 @@ export interface ScanContext {
   notes: string[];
   ephemeralUserIds: string[];
   supabase?: SupabaseState;
+  bundle?: Promise<Bundle>;
 }

@@ -1,7 +1,12 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Socket } from "node:net";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SAMPLE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "sample-bundle");
 
 // In-memory stand-in for Supabase Auth, PostgREST, and a small app.
 // vulnerable: RLS off, signup open, secrets in app.js, unsigned webhook, open chat route.
@@ -18,6 +23,14 @@ export interface FixtureOptions {
   leakSecrets?: boolean;
   sourceMap?: boolean;
   port?: number;
+  // "forbidden" mimics hosted Supabase since 2026-04-08: the OpenAPI root 403s for anon and publishable keys.
+  openApi?: "allowed" | "forbidden";
+  // "publishable" hands out an sb_publishable_ key, which the gateway accepts on apikey and PostgREST rejects as a bearer.
+  keyStyle?: "legacy" | "publishable";
+  // "sample" serves test/fixtures/sample-bundle instead of the tiny inline app.
+  app?: "inline" | "sample";
+  // Tables that exist in PostgREST. Defaults to all three; [] mimics a project with nothing public.
+  tables?: ("profiles" | "notes" | "posts")[];
 }
 
 export interface FixtureRequest {
@@ -25,6 +38,9 @@ export interface FixtureRequest {
   pathname: string;
   role: string | null;
   apikeyRole: string | null;
+  // True when Authorization carried something that is not a JWT (for example Bearer sb_publishable_...).
+  malformedBearer: boolean;
+  search: string;
   body: string;
 }
 
@@ -42,6 +58,19 @@ export interface Fixture {
 
 type Row = Record<string, unknown>;
 
+interface Identity {
+  role: string;
+  sub: string | null;
+  apikeyRole: string | null;
+  malformedBearer: boolean;
+}
+
+const COLUMNS: Record<"profiles" | "notes" | "posts", string[]> = {
+  profiles: ["id", "user_id", "display_name", "note", "role", "is_admin", "plan", "credits"],
+  notes: ["id", "user_id", "body", "kind", "level"],
+  posts: ["id", "title", "body"],
+};
+
 const SENSITIVE = ["role", "is_admin", "is_superadmin", "admin", "plan", "tier", "credits", "credit_balance", "balance"];
 
 export async function startFixture(options: FixtureOptions): Promise<Fixture> {
@@ -52,8 +81,18 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
   const leakSecrets = options.leakSecrets ?? mode === "vulnerable";
   const sourceMap = options.sourceMap ?? mode === "vulnerable";
   const secret = crypto.randomBytes(32).toString("hex");
-  const anonKey = signJwt({ role: "anon", iss: "nb-probe-fixture" }, secret);
-  const serviceRole = signJwt({ role: "service_role", iss: "nb-probe-fixture", use: "admin" }, secret);
+  const openApiMode = options.openApi ?? "allowed";
+  const keyStyle = options.keyStyle ?? "legacy";
+  const appStyle = options.app ?? "inline";
+  const liveTables: string[] = options.tables ?? ["profiles", "notes", "posts"];
+  const anonKey =
+    keyStyle === "publishable"
+      ? `sb_publishable_${crypto.randomBytes(16).toString("base64url").slice(0, 22)}_${crypto.randomBytes(4).toString("hex")}`
+      : signJwt({ role: "anon", iss: "nb-probe-fixture" }, secret);
+  const serviceRole =
+    keyStyle === "publishable"
+      ? `sb_secret_${crypto.randomBytes(16).toString("base64url").slice(0, 22)}_${crypto.randomBytes(4).toString("hex")}`
+      : signJwt({ role: "service_role", iss: "nb-probe-fixture", use: "admin" }, secret);
   const leakedServiceRole = signJwt({ role: "service_role", iss: "nb-probe-fixture", use: "leaked" }, secret);
 
   const usersById = new Map<string, { id: string; email: string; password: string }>();
@@ -90,21 +129,33 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
     };
   }
 
-  function identify(req: http.IncomingMessage): { role: string; sub: string | null; apikeyRole: string | null } {
+  function identify(req: http.IncomingMessage): Identity {
     const apikey = header(req, "apikey");
     let apikeyRole: string | null = null;
     if (apikey) {
-      const payload = verifyJwt(apikey, secret);
-      apikeyRole = typeof payload?.role === "string" ? payload.role : "invalid";
+      if (keyStyle === "publishable" && apikey === anonKey) apikeyRole = "anon";
+      else if (keyStyle === "publishable" && apikey === serviceRole) apikeyRole = "service_role";
+      else {
+        const payload = verifyJwt(apikey, secret);
+        apikeyRole = typeof payload?.role === "string" ? payload.role : "invalid";
+      }
     }
     const authorization = header(req, "authorization");
     const bearer = authorization?.toLowerCase().startsWith("bearer ") ? authorization.slice(7).trim() : "";
+    if (bearer && bearer.split(".").length !== 3) {
+      // PostgREST tries to decode whatever is in Authorization as a JWT.
+      return { role: "malformed", sub: null, apikeyRole, malformedBearer: true };
+    }
+    if (!bearer && apikeyRole && apikeyRole !== "invalid") {
+      // Hosted gateway: an opaque or legacy key on apikey alone maps to its role.
+      return { role: apikeyRole, sub: null, apikeyRole, malformedBearer: false };
+    }
     const tokenValue = bearer || apikey || "";
-    if (!tokenValue) return { role: "none", sub: null, apikeyRole };
+    if (!tokenValue) return { role: "none", sub: null, apikeyRole, malformedBearer: false };
     const payload = verifyJwt(tokenValue, secret);
-    if (!payload || typeof payload.role !== "string") return { role: "invalid", sub: null, apikeyRole };
+    if (!payload || typeof payload.role !== "string") return { role: "invalid", sub: null, apikeyRole, malformedBearer: false };
     const sub = typeof payload.sub === "string" ? payload.sub : null;
-    return { role: payload.role, sub, apikeyRole };
+    return { role: payload.role, sub, apikeyRole, malformedBearer: false };
   }
 
   function canRead(table: string, row: Row, role: string, sub: string | null): boolean {
@@ -145,6 +196,8 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
       pathname,
       role: identity.role === "none" ? null : identity.role,
       apikeyRole: identity.apikeyRole,
+      malformedBearer: identity.malformedBearer,
+      search: url.search,
       body: bodyText.slice(0, 2000),
     });
 
@@ -152,6 +205,9 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
       if (!serveOwnership) return send(res, 404, { message: "not found" });
       if (tokenStyle === "json") return send(res, 200, { token });
       return send(res, 200, `${token}\n`);
+    }
+    if (appStyle === "sample" && method === "GET" && (pathname === "/" || pathname.startsWith("/assets/"))) {
+      return sample(res, pathname);
     }
     if (pathname === "/" && method === "GET") return send(res, 200, html(), "text/html; charset=utf-8");
     if (pathname === "/assets/app.js" && method === "GET") {
@@ -169,10 +225,23 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
     return send(res, 404, { message: "not found" });
   }
 
-  function requireApiKey(identity: { apikeyRole: string | null }, res: http.ServerResponse): boolean {
+  function requireApiKey(identity: Pick<Identity, "apikeyRole">, res: http.ServerResponse): boolean {
     if (identity.apikeyRole === "anon" || identity.apikeyRole === "service_role") return true;
     send(res, 401, { message: "Invalid API key" });
     return false;
+  }
+
+  function sample(res: http.ServerResponse, pathname: string): void {
+    const name = pathname === "/" ? "index.html" : pathname.slice(1);
+    if (name.includes("..")) return send(res, 404, { message: "not found" });
+    const file = path.join(SAMPLE_DIR, name);
+    if (!fs.existsSync(file)) return send(res, 404, { message: "not found" });
+    const type = name.endsWith(".html")
+      ? "text/html; charset=utf-8"
+      : name.endsWith(".map")
+        ? "application/json"
+        : "text/javascript; charset=utf-8";
+    send(res, 200, fs.readFileSync(file, "utf8"), type);
   }
 
   function webhook(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -261,8 +330,15 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
     send(res, 200, { id });
   }
 
-  function openApi(res: http.ServerResponse, identity: { apikeyRole: string | null }): void {
+  function openApi(res: http.ServerResponse, identity: Identity): void {
     if (!requireApiKey(identity, res)) return;
+    if (openApiMode === "forbidden" && identity.role !== "service_role") {
+      // Body copied from the Supabase changelog for the 2026-04-08 change.
+      return send(res, 403, {
+        message: "Access to schema is forbidden",
+        hint: "Accessing the schema via the Data API is only allowed using a secret API key.",
+      });
+    }
     send(res, 200, openApiDocument());
   }
 
@@ -272,17 +348,63 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
     method: string,
     url: URL,
     bodyText: string,
-    identity: { role: string; sub: string | null; apikeyRole: string | null },
+    identity: Identity,
   ): void {
     if (!requireApiKey(identity, res)) return;
-    if (identity.role === "invalid" || identity.role === "none") return send(res, 401, { message: "Invalid JWT" });
-    const name = pathname.slice("/rest/v1/".length);
-    if (name !== "profiles" && name !== "notes" && name !== "posts") {
-      return send(res, 404, { code: "PGRST205", message: `Could not find the table '${name}'` });
+    if (identity.role === "malformed") {
+      return send(res, 401, { code: "PGRST301", details: null, hint: null, message: "Expected 3 parts in JWT; got 1" });
     }
+    if (identity.role === "invalid" || identity.role === "none") return send(res, 401, { message: "Invalid JWT" });
+    const rawName = pathname.slice("/rest/v1/".length);
+    if (rawName.startsWith("rpc/")) {
+      return send(res, 404, { code: "PGRST202", message: `Could not find the function public.${rawName.slice(4)} in the schema cache` });
+    }
+    if (!liveTables.includes(rawName)) {
+      const name = rawName;
+      const near = closest(name, liveTables);
+      return send(res, 404, {
+        code: "PGRST205",
+        details: null,
+        hint: near ? `Perhaps you meant the table 'public.${near}'` : null,
+        message: `Could not find the table 'public.${name}' in the schema cache`,
+      });
+    }
+    const name = rawName as "profiles" | "notes" | "posts";
     const table = name;
+    const known = COLUMNS[table];
     const parsed = parseFilters(url.searchParams);
     if (!parsed) return send(res, 400, { message: "unsupported filter" });
+    const selectParam = url.searchParams.get("select");
+    const projection = selectParam && selectParam !== "*" ? selectParam.split(",").map((item) => item.trim()) : null;
+    for (const column of [...(projection ?? []), ...parsed.filters.map(([column]) => column)]) {
+      if (!known.includes(column)) {
+        const near = closest(column, known);
+        return send(res, 400, {
+          code: "42703",
+          details: null,
+          hint: near ? `Perhaps you meant to reference the column "${table}.${near}".` : null,
+          message: `column ${table}.${column} does not exist`,
+        });
+      }
+    }
+    const project = (row: Row): Row => {
+      if (!projection) return row;
+      const out: Row = {};
+      for (const column of projection) out[column] = row[column];
+      return out;
+    };
+    if ((method === "POST" || method === "PATCH") && bodyText) {
+      const keys = Object.keys(parseJson(bodyText) ?? {});
+      const unknown = keys.find((key) => !known.includes(key));
+      if (unknown) {
+        return send(res, 400, {
+          code: "PGRST204",
+          details: null,
+          hint: null,
+          message: `Could not find the '${unknown}' column of '${table}' in the schema cache`,
+        });
+      }
+    }
     if ((method === "PATCH" || method === "DELETE") && parsed.filters.length === 0) {
       return send(res, 400, { message: "refusing unfiltered write" });
     }
@@ -290,7 +412,7 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
     if (method === "GET") {
       let matched = rows[table].filter((row) => canRead(table, row, identity.role, identity.sub) && matches(row, parsed.filters));
       if (parsed.limit !== undefined) matched = matched.slice(0, parsed.limit);
-      return send(res, 200, matched);
+      return send(res, 200, matched.map(project));
     }
 
     if (method === "POST") {
@@ -302,7 +424,26 @@ export async function startFixture(options: FixtureOptions): Promise<Fixture> {
       }
       const body = parseJson(bodyText);
       if (!body) return send(res, 400, { message: "invalid json" });
-      if (table === "notes" && typeof body.body !== "string") return send(res, 400, { message: "body required" });
+      if (table === "notes") {
+        for (const column of ["body", "kind", "level"]) {
+          if (body[column] === undefined || body[column] === null) {
+            return send(res, 400, {
+              code: "23502",
+              details: null,
+              hint: null,
+              message: `null value in column "${column}" of relation "notes" violates not-null constraint`,
+            });
+          }
+        }
+        if (typeof body.level !== "number") {
+          return send(res, 400, {
+            code: "22P02",
+            details: null,
+            hint: null,
+            message: `invalid input syntax for type integer: "${String(body.level)}"`,
+          });
+        }
+      }
       const row: Row = { ...body };
       if (typeof row.id !== "string") row.id = crypto.randomUUID();
       if (table === "profiles") {
@@ -446,11 +587,13 @@ function openApiDocument(): Record<string, unknown> {
       },
       notes: {
         type: "object",
-        required: ["id"],
+        required: ["id", "body", "kind", "level"],
         properties: {
           id: { type: "string", format: "uuid", default: "gen_random_uuid()", description: pk },
           user_id: { type: "string", format: "uuid" },
           body: { type: "string" },
+          kind: { type: "string" },
+          level: { type: "integer" },
         },
       },
       posts: {
@@ -469,6 +612,33 @@ function openApiDocument(): Record<string, unknown> {
       "/posts": { get: {}, post: {} },
     },
   };
+}
+
+function closest(name: string, options: string[]): string | null {
+  let best: string | null = null;
+  let bestScore = Infinity;
+  for (const option of options) {
+    const score = distance(name, option);
+    if (score < bestScore) {
+      best = option;
+      bestScore = score;
+    }
+  }
+  return bestScore <= 3 ? best : null;
+}
+
+function distance(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0] ?? 0;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const current = row[j] ?? 0;
+      row[j] = Math.min((row[j] ?? 0) + 1, (row[j - 1] ?? 0) + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = current;
+    }
+  }
+  return row[b.length] ?? Infinity;
 }
 
 function parseFilters(search: URLSearchParams): { filters: [string, string][]; limit?: number } | null {

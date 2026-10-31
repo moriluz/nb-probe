@@ -1,6 +1,6 @@
 {
   "name": "nb-probe",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Ownership-gated security probe for apps you run. Supabase first.",
   "license": "MIT",
   "author": "Neural Breach <hello@neural-breach.com>",
@@ -34,7 +34,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
-    "test": "tsc -p tsconfig.test.json --noEmit && tsx --test test/unit.test.ts test/scan.test.ts test/cli.test.ts",
+    "test": "tsc -p tsconfig.test.json --noEmit && tsx --test test/unit.test.ts test/discovery.test.ts test/scan.test.ts test/cli.test.ts",
     "prepublishOnly": "npm run build && npm test",
     "nb-probe": "tsx src/cli.ts",
     "fixture": "tsx test/fixture-cli.ts"

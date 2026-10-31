@@ -47,6 +47,7 @@ export async function scan(input: ScanConfig): Promise<ScanReport> {
     startedAt,
     results,
     notes: ctx.notes,
+    discovery: ctx.supabase?.discovery,
   });
 }
 

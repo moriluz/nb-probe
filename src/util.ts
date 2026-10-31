@@ -91,6 +91,10 @@ export function decodeJwtPayload(token: string): Record<string, unknown> | null 
   }
 }
 
+export function isJwt(token: string): boolean {
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/.test(token);
+}
+
 export function jwtRole(token: string): string | null {
   const payload = decodeJwtPayload(token);
   const role = payload?.role;

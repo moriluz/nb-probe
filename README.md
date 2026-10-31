@@ -38,7 +38,36 @@ npx tsx src/cli.ts scan --url https://app.example --token "$NB_TOKEN" \
   --supabase-url "$NB_SUPABASE_URL" --anon-key "$NB_ANON_KEY"
 ```
 
-`--help` lists the flags. The same names exist as `NB_URL`, `NB_TOKEN`, `NB_SUPABASE_URL`, `NB_ANON_KEY`, `NB_SERVICE_ROLE`, `NB_TABLES`, `NB_USER_A`, `NB_USER_B`, `NB_SIGNUP_PATH`, `NB_CLOSED_SIGNUP=1`, `NB_WEBHOOK_PATH`, `NB_LLM_PATH`, `NB_ONLY`, and `NB_TIMEOUT`. Keys on the command line are visible to other users on the machine.
+`--help` lists the flags. The same names exist as `NB_URL`, `NB_TOKEN`, `NB_SUPABASE_URL`, `NB_ANON_KEY`, `NB_SERVICE_ROLE`, `NB_TABLES`, `NB_USER_A`, `NB_USER_B`, `NB_USER_A_EMAIL`, `NB_USER_A_PASSWORD`, `NB_USER_B_EMAIL`, `NB_USER_B_PASSWORD`, `NB_SIGNUP_PATH`, `NB_CLOSED_SIGNUP=1`, `NB_WEBHOOK_PATH`, `NB_LLM_PATH`, `NB_ONLY`, and `NB_TIMEOUT`. Keys on the command line are visible to other users on the machine.
+
+## Hosted Supabase
+
+Since April 8, 2026, hosted Supabase refuses the Data API schema (`GET /rest/v1/`) to anon and publishable keys. Depending on the project it answers HTTP 403 `Access to schema is forbidden` or HTTP 401 `Secret API key required`; nb-probe treats any non-200 the same way. Projects created after March 11, 2026 had it from the start. nb-probe 0.1.0 read the table list from that schema, so on hosted projects every data check errored, and `--tables` did not help.
+
+From 0.2.0, when the schema is refused, nb-probe finds tables another way:
+
+1. It reads the app's own HTML, same-origin scripts, lazy chunks, and same-origin source maps, and collects supabase-js calls: `.from("table")`, the columns in `.select(...)`, filter columns, `insert` / `update` / `upsert` keys, `.rpc("name")`, and storage buckets. `node_modules` sources in a source map are skipped.
+2. It adds `--tables` and a short list of common table names.
+3. It confirms each candidate with `GET /rest/v1/<table>?select=*&limit=0` as anon. `limit=0` returns no rows. A PostgREST "Perhaps you meant the table ..." hint adds the suggested table, and "column ... does not exist" errors confirm columns.
+
+The report says where each table came from (`openapi`, `--tables`, `bundle`, `source-map`, `postgrest-hint`, or `guess`), which ones were probed, and why the others were not. RPCs are listed and never called. If nothing user-scoped is found, the data checks are skipped with `skipped: no tables discovered, pass --tables`.
+
+`--tables` chooses what gets probed in both modes. Tables discovered outside it are listed and left alone.
+
+Without the schema nb-probe does not know which columns are required or how they are typed. A failed insert writes nothing, so it reads the Postgres error (`null value in column`, `invalid input syntax for type`, unknown column) and retries, up to six times per row.
+
+Keys: `--anon-key` takes a legacy anon JWT or an `sb_publishable_...` key. `--service-role` takes a legacy service role JWT or an `sb_secret_...` key. The new key formats are sent on the `apikey` header only. Only JWTs go in `Authorization`.
+
+Test accounts: on most hosted projects you will not want to pass a secret key, and public signup may be off. Create two ordinary, confirmed users in the project and pass them:
+
+```bash
+NB_USER_A_EMAIL=a@yourapp.test NB_USER_A_PASSWORD=... \
+NB_USER_B_EMAIL=b@yourapp.test NB_USER_B_PASSWORD=... \
+npx nb-probe scan --url https://app.example --token "$NB_TOKEN" \
+  --supabase-url https://<ref>.supabase.co --anon-key sb_publishable_...
+```
+
+nb-probe signs in with the password grant. It never creates, changes, or deletes these accounts. It inserts one probe row per account per table and deletes them at the end.
 
 ## Ownership token
 
@@ -67,9 +96,9 @@ On Next.js or Vite, save it as `public/.well-known/neural-breach` with no extens
 
 Severity is a local label for the exit code. It is not a CVSS score and it is not a CVE.
 
-`--service-role` is optional. It is sent only to `/auth/v1/admin` to create and delete probe users. Passing it as `--anon-key` is a usage error. If you already have two sessions, pass `--user-a` and `--user-b` and skip the service role. `--tables` limits the probe to named tables. Without it, tables whose schema has `user_id`, `owner_id`, `created_by`, or `author_id` are selected, up to 20. `--only` runs a subset of the ids above.
+`--service-role` is optional. It is sent only to `/auth/v1/admin` to create and delete probe users. Passing it as `--anon-key` is a usage error. If you already have two sessions, pass `--user-a` and `--user-b` and skip the service role, or pass two test accounts with `--user-a-email` / `--user-a-password` / `--user-b-email` / `--user-b-password`. `--tables` limits the probe to named tables. Without it, tables whose schema has `user_id`, `owner_id`, `created_by`, `author_id`, `sender_id`, `creator_id`, or `uploaded_by` are selected, up to 20. `--only` runs a subset of the ids above.
 
-Webhook defaults: `/api/webhooks/stripe`, `/api/stripe/webhook`, `/api/webhook`. LLM defaults: `/api/chat`, `/api/llm`, `/api/ai`. A 404 on all of them is a skip. `--closed-signup` is off unless you set it.
+Webhook defaults: `/api/webhooks/stripe`, `/api/stripe/webhook`, `/api/webhook`. LLM defaults: `/api/chat`, `/api/llm`, `/api/ai`. A 404, 405, or 501 on all of them is a skip: those mean no POST handler, which is what a static host returns. `--closed-signup` is off unless you set it.
 
 The probe inserts rows, may patch a field on a row it created, posts one unsigned event id `evt_nb_probe_canary`, and posts `{"messages":[{"content":"nb-probe ping"}]}` to the chat route. Run it against staging. Cleanup deletes the probe rows before exit, and deletes the users when a service role was passed, so a curl copied from the report often returns `[]` afterward. `--no-cleanup` leaves them.
 
@@ -153,7 +182,7 @@ The report text does not contain the service role key. The bundle curl, when you
 
 ## JSON
 
-`--json` prints one document on stdout (`schemaVersion` 1). Human output is the default and stays on stdout otherwise. Each result has `status`, `severity`, `summary`, `fix`, `repro`, and `evidence`. `notes` lists leftovers: a row the delete did not remove, probe users left behind because no service role was passed, tables the schema did not contain.
+`--json` prints one document on stdout (`schemaVersion` 1). Human output is the default and stays on stdout otherwise. Each result has `status`, `severity`, `summary`, `fix`, `repro`, and `evidence`. `discovery` says whether the schema was read or refused and lists each table with its `sources`, `status` (`probed`, `found`, `not-found`, `error`), and owner column, plus RPC names and storage buckets seen in the bundle. `notes` lists leftovers: a row the delete did not remove, probe users left behind because no service role was passed, tables the schema did not contain.
 
 ## Only scan apps you own
 

@@ -48,11 +48,9 @@ export function userGate(ctx: ScanContext, id: string, title: string): CheckResu
   const state = ctx.supabase;
   if (!state) return skipped(id, title, "Pass --supabase-url and --anon-key to run this check.");
   if (!state.userA || !state.userB) {
+    if (!state.provisionError && state.skipReason) return skipped(id, title, state.skipReason);
     if (!state.provisionError && state.selected.length === 0) {
-      const named = ctx.config.tables?.length
-        ? "None of the requested tables could be probed."
-        : "No user-scoped tables in the published schema. Pass --tables to name private tables.";
-      return skipped(id, title, state.provisionError ?? named);
+      return skipped(id, title, "skipped: no tables discovered, pass --tables");
     }
     return errored(id, title, state.provisionError ?? "Could not prepare two probe users.");
   }
@@ -88,3 +86,7 @@ export function idQuery(canary: Canary): string {
 export function listTables(names: string[]): string {
   return [...new Set(names)].sort().join(", ");
 }
+
+// A POST to these means there is no handler on the path: 404 from an app router, 405 from a static
+// host or a GET-only route, 501 from a plain file server that does not implement POST.
+export const NO_ROUTE = new Set([404, 405, 501]);

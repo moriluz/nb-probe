@@ -1,7 +1,9 @@
 import type { ColumnSchema, TableSchema } from "./types.js";
 
-const OWNER_COLUMNS = ["user_id", "owner_id", "created_by", "author_id"];
-const MARKER_COLUMNS = [
+// Ordered by preference. sender_id, creator_id and uploaded_by are common in messaging, content and
+// file tables that vibe-coded apps generate, and hold auth.uid() just like user_id.
+export const OWNER_COLUMNS = ["user_id", "owner_id", "created_by", "author_id", "sender_id", "creator_id", "uploaded_by"];
+export const MARKER_COLUMNS = [
   "note",
   "notes",
   "body",
@@ -15,7 +17,7 @@ const MARKER_COLUMNS = [
   "text",
   "comment",
 ];
-const SENSITIVE_COLUMNS = [
+export const SENSITIVE_COLUMNS = [
   "role",
   "is_admin",
   "is_superadmin",
@@ -98,6 +100,12 @@ function parseTable(name: string, definition: unknown): TableSchema {
     columns.push(column);
   }
 
+  return deriveTable(name, columns);
+}
+
+// Picks the primary key, owner, marker, and privileged columns from a column list. Shared by the
+// OpenAPI parser and by bundle discovery, so both paths choose the same columns.
+export function deriveTable(name: string, columns: ColumnSchema[]): TableSchema {
   const primaryKey = columns.find((column) => column.primary)?.name ?? columns.find((column) => column.name === "id")?.name ?? null;
   const sensitive = new Set(SENSITIVE_COLUMNS);
   const ownerColumn = OWNER_COLUMNS.find((candidate) => columns.some((column) => column.name === candidate)) ?? null;
