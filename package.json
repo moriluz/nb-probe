@@ -1,6 +1,6 @@
 {
   "name": "nb-probe",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Ownership-gated security probe for apps you run. Supabase first.",
   "license": "MIT",
   "author": "Neural Breach <hello@neural-breach.com>",

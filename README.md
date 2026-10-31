@@ -131,7 +131,7 @@ The probe inserts rows, may patch a field on a row it created, posts one unsigne
 This is a run against the vulnerable fixture (`npm run fixture`), with keys and row ids shortened. Exit code 1.
 
 ```text
-nb-probe 0.2.0
+nb-probe 0.3.0
 target: http://127.0.0.1:40177
 ownership: verified
 supabase: http://127.0.0.1:40177

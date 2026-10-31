@@ -334,7 +334,7 @@ test("human report keeps the curl on its own line", () => {
       ],
     }),
   );
-  assert.match(text, /^nb-probe 0\.2\.0\n/);
+  assert.match(text, /^nb-probe 0\.3\.0\n/);
   assert.match(text, /FAIL\s+high\s+logged-out-read/);
   assert.match(text, /^curl -sS /m);
   assert.match(text, /1 passed, 0 failed|0 passed, 1 failed/);

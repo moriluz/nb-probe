@@ -56,7 +56,7 @@ test("token and help commands", async () => {
 
   const version = await run(["--version"]);
   assert.equal(version.code, 0);
-  assert.match(version.stdout, /^0\.2\.0\n/);
+  assert.match(version.stdout, /^0\.3\.0\n/);
 });
 
 test("cli scan against the vulnerable fixture exits 1", { timeout: 60_000 }, async () => {
