@@ -1,9 +1,12 @@
 import { CHECK_IDS } from "./checks/ids.js";
 import type { ScanConfig } from "./types.js";
+import { type AppTarget, displayTarget, parseTarget } from "./target.js";
 import { jwtRole, safePath, splitList, UsageError } from "./util.js";
 
 export interface ResolvedConfig {
+  // The target as shown in reports: the origin for a root app, the base URL for a sub-path app.
   url: string;
+  target: AppTarget;
   token: string;
   supabaseUrl?: string;
   anonKey?: string;
@@ -28,23 +31,6 @@ export const DEFAULT_WEBHOOK_PATHS = ["/api/webhooks/stripe", "/api/stripe/webho
 export const DEFAULT_LLM_PATHS = ["/api/chat", "/api/llm", "/api/ai"];
 
 const TOKEN_RE = /^[A-Za-z0-9._~-]{8,200}$/;
-
-function originOnly(input: string, flag: string): string {
-  let url: URL;
-  try {
-    url = new URL(input);
-  } catch {
-    throw new UsageError(`${flag} is not a URL: ${input}`);
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new UsageError(`${flag} must be http or https`);
-  }
-  if (url.username || url.password) throw new UsageError(`${flag} must not include credentials`);
-  if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
-    throw new UsageError(`${flag} must be an origin, without a path`);
-  }
-  return url.origin;
-}
 
 export function normalizeSupabaseUrl(input: string): string {
   let url: URL;
@@ -101,7 +87,8 @@ function credentials(
 export function resolveConfig(input: ScanConfig): ResolvedConfig {
   if (!input.url) throw new UsageError("--url is required");
   if (!input.token) throw new UsageError("--token is required");
-  const url = originOnly(input.url, "--url");
+  const target = parseTarget(input.url, "--url");
+  const url = displayTarget(target);
   const token = input.token.trim();
   if (!TOKEN_RE.test(token)) {
     throw new UsageError("--token must be 8 to 200 characters of letters, digits, or . _ ~ -");
@@ -172,6 +159,7 @@ export function resolveConfig(input: ScanConfig): ResolvedConfig {
 
   const resolved: ResolvedConfig = {
     url,
+    target,
     token,
     closedSignup: input.closedSignup ?? false,
     webhookPaths,

@@ -1,7 +1,7 @@
 import { curlOf } from "../util.js";
 import { rowId, rowsFromBody } from "../rows.js";
 import type { Check } from "./common.js";
-import { conclude, errored, idQuery, listTables, pairs, userGate } from "./common.js";
+import { conclude, errored, idQuery, listTables, pairs, reproAll, userGate } from "./common.js";
 
 const FIX =
   "Add a select policy so a user can read only their own rows: auth.uid() = user_id. Drop any policy whose expression is true.";
@@ -52,7 +52,7 @@ export const idorRead: Check = {
           severity: "high",
           summary: `User A read User B's probe rows in ${listTables(leaks.map((leak) => leak.table))}.`,
           fix: FIX,
-          repro: leaks[0]?.repro,
+          repro: reproAll(leaks.map((leak) => ({ label: leak.table, repro: leak.repro }))),
           evidence: { leaks },
         }),
       ];

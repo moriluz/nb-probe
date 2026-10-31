@@ -1,3 +1,4 @@
+import { appUrl } from "../target.js";
 import type { HttpClient } from "../http.js";
 import type { ApiResult } from "../types.js";
 import { errorMessage, toCurl } from "../util.js";
@@ -21,7 +22,7 @@ export const llmEndpoint: Check = {
     const missing: string[] = [];
     for (const path of ctx.config.llmPaths) {
       try {
-        const unauth = await post(ctx.http, `${ctx.origin}${path}`, undefined);
+        const unauth = await post(ctx.http, appUrl(ctx.config.target, path), undefined);
         if (NO_ROUTE.has(unauth.status)) {
           missing.push(path);
           continue;
@@ -51,7 +52,7 @@ export const llmEndpoint: Check = {
     const bearer = ctx.supabase?.userA?.accessToken;
     if (!unauthOpen && bearer) {
       try {
-        auth = await post(ctx.http, `${ctx.origin}${found.path}`, bearer);
+        auth = await post(ctx.http, appUrl(ctx.config.target, found.path), bearer);
       } catch (err) {
         return [errored(this.id, this.title, `Authenticated POST ${found.path} failed: ${errorMessage(err)}`)];
       }

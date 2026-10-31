@@ -1,3 +1,4 @@
+import { appUrl } from "../target.js";
 import type { HttpClient } from "../http.js";
 import type { ApiResult } from "../types.js";
 import { errorMessage, toCurl } from "../util.js";
@@ -32,7 +33,7 @@ export const webhookSignature: Check = {
       tried.push(path);
       let response;
       try {
-        response = await post(ctx.http, ctx.origin, path);
+        response = await post(ctx.http, appUrl(ctx.config.target, path));
       } catch (err) {
         return [errored(this.id, this.title, `POST ${path} failed: ${errorMessage(err)}`)];
       }
@@ -105,9 +106,9 @@ export const webhookSignature: Check = {
   },
 };
 
-async function post(http: HttpClient, origin: string, path: string): Promise<ApiResult> {
+async function post(http: HttpClient, url: string): Promise<ApiResult> {
   const headers = { "content-type": "application/json", accept: "application/json" };
-  const response = await http.request(`${origin}${path}`, { method: "POST", headers, body: PAYLOAD });
+  const response = await http.request(url, { method: "POST", headers, body: PAYLOAD });
   return {
     status: response.status,
     text: response.text,

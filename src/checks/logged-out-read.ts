@@ -1,7 +1,7 @@
 import { curlOf } from "../util.js";
 import { rowId, rowsFromBody } from "../rows.js";
 import type { Check } from "./common.js";
-import { conclude, errored, idQuery, listTables, onePerTable, userGate } from "./common.js";
+import { conclude, errored, idQuery, listTables, onePerTable, reproAll, userGate } from "./common.js";
 
 const FIX =
   "Turn on RLS for the table. Add a select policy for authenticated with auth.uid() = user_id (or your owner column). Do not add a select policy for anon.";
@@ -54,7 +54,7 @@ export const loggedOutRead: Check = {
           severity: "high",
           summary: `The anon key read probe rows in ${listTables(leaks.map((leak) => leak.table))}.`,
           fix: FIX,
-          repro: leaks[0]?.repro,
+          repro: reproAll(leaks.map((leak) => ({ label: leak.table, repro: leak.repro }))),
           evidence: { leaks },
         }),
       ];

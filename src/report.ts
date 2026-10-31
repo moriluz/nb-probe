@@ -24,7 +24,7 @@ export function formatHuman(report: ScanReport): string {
   const lines = [
     `nb-probe ${report.version}`,
     `target: ${report.target}`,
-    `ownership: ${report.ownership}`,
+    `ownership: ${report.ownership}${report.ownershipFile ? ` (${pathOnly(report.ownershipFile)})` : ""}`,
   ];
   if (report.supabaseUrl) lines.push(`supabase: ${report.supabaseUrl}`);
   if (report.message) lines.push(report.message);
@@ -79,6 +79,14 @@ function formatResult(result: CheckResult): string {
   return lines.join("\n");
 }
 
+function pathOnly(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
 export function formatJson(report: ScanReport): string {
   return `${JSON.stringify(report, null, 2)}\n`;
 }
@@ -87,6 +95,7 @@ export function buildReport(args: {
   target: string;
   supabaseUrl?: string;
   ownership: ScanReport["ownership"];
+  ownershipFile?: string;
   message?: string;
   startedAt: string;
   results: CheckResult[];
@@ -105,6 +114,7 @@ export function buildReport(args: {
     summary: summarize(args.results),
     notes: args.notes,
   };
+  if (args.ownershipFile) report.ownershipFile = args.ownershipFile;
   if (args.supabaseUrl) report.supabaseUrl = args.supabaseUrl;
   if (args.message) report.message = args.message;
   if (args.discovery) report.discovery = args.discovery;

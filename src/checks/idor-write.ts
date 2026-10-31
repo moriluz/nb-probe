@@ -3,7 +3,7 @@ import { rowId, rowsFromBody, valueStuck } from "../rows.js";
 import type { ApiResult } from "../types.js";
 import type { Canary } from "../types.js";
 import type { Check } from "./common.js";
-import { conclude, errored, idQuery, listTables, pairs, userGate } from "./common.js";
+import { conclude, errored, idQuery, listTables, pairs, reproAll, userGate } from "./common.js";
 
 const FIX =
   "Add update and delete policies with both USING and WITH CHECK set to auth.uid() = user_id. USING alone can still allow an owner change on some setups, so set WITH CHECK as well.";
@@ -86,7 +86,7 @@ export const idorWrite: Check = {
           severity: "critical",
           summary: `User A wrote User B's probe rows in ${listTables(writes.map((write) => write.table))}.`,
           fix: FIX,
-          repro: writes[0]?.repro,
+          repro: reproAll(writes.map((write) => ({ label: `${write.table} (${write.via})`, repro: write.repro }))),
           evidence: { writes },
         }),
       ];

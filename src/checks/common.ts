@@ -83,6 +83,14 @@ export function idQuery(canary: Canary): string {
   return `${eqFilter(canary.idColumn, canary.id)}&select=*`;
 }
 
+// One curl per flagged table. A single finding stays a bare curl command; several are one per line,
+// each tagged with a shell comment naming the table so the block can be pasted as is.
+export function reproAll(items: { label: string; repro: string }[]): string | undefined {
+  const unique = items.filter((item, index) => items.findIndex((other) => other.label === item.label) === index);
+  if (unique.length <= 1) return unique[0]?.repro;
+  return unique.map((item) => `${item.repro}  # ${item.label.replace(/[^A-Za-z0-9_. -]/g, "")}`).join("\n");
+}
+
 export function listTables(names: string[]): string {
   return [...new Set(names)].sort().join(", ");
 }
